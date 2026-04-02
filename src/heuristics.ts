@@ -1,4 +1,4 @@
-import type { PurchaseLinkSignal, SellerAuthorSummary, SellerSignal, SellerWhitelistConfig, SellerWhitelistDecision, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
+import type { PurchaseLinkSignal, ScopeCandidate, SellerAuthorSummary, SellerSignal, SellerWhitelistConfig, SellerWhitelistDecision, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
 
 const COMPANY_NAMES = [
   '腾讯', '字节', '美团', '阿里', '阿里云', '通义', '蚂蚁', '京东', '百度', '快手',
@@ -49,6 +49,24 @@ export function noteIdToDate(input: string): string {
   const ts = parseInt(noteId.slice(0, 8), 16);
   if (!Number.isFinite(ts) || ts < 1_000_000_000 || ts > 4_000_000_000) return '';
   return new Date((ts + 8 * 3600) * 1000).toISOString().slice(0, 10);
+}
+
+export function parseApproxPublishedAt(value: string, reference = new Date()): Date | null {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  let match = text.match(/^(\d+)小时前/);
+  if (match) {
+    return new Date(reference.getTime() - Number(match[1]) * 3600_000);
+  }
+  match = text.match(/^(\d+)天前/);
+  if (match) {
+    return new Date(reference.getTime() - Number(match[1]) * 24 * 3600_000);
+  }
+  match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00+08:00`);
+  }
+  return null;
 }
 
 export function normalizeQuestion(text: string): string {
@@ -291,4 +309,92 @@ export function summarizeSellerAuthors(notes: XhsNote[]): SellerAuthorSummary[] 
   return [...byAuthor.values()]
     .filter((item) => item.seller_note_count > 0)
     .sort((a, b) => b.seller_note_count - a.seller_note_count || b.max_confidence - a.max_confidence || a.author.localeCompare(b.author));
+}
+
+export function buildScopeCandidates(
+  notes: XhsNote[],
+  filter: {
+    since?: string;
+    companies?: string[];
+    agentKeywords?: string[];
+    algoKeywords?: string[];
+    excludeTitleKeywords?: string[];
+  },
+  reference = new Date(),
+): ScopeCandidate[] {
+  const since = filter.since ? new Date(`${filter.since}T00:00:00+08:00`) : null;
+  const companies = filter.companies || [];
+  const agentKeywords = filter.agentKeywords || [];
+  const algoKeywords = filter.algoKeywords || [];
+  const excludeTitleKeywords = filter.excludeTitleKeywords || [];
+
+  const rows: ScopeCandidate[] = [];
+  for (const note of notes) {
+    const title = String(note.title || '');
+    const content = String(note.content || '');
+    const query = String(note.query || '');
+    const combined = `${title}\n${content}\n${query}`;
+    const company = companies.find((item) => combined.includes(item)) || '';
+    if (!company) continue;
+
+    if (excludeTitleKeywords.some((item) => item && title.includes(item))) {
+      continue;
+    }
+
+    const published = parseApproxPublishedAt(String(note.published_at || ''), reference);
+    if (!published) continue;
+    if (since && published < since) continue;
+
+    const agentInText = agentKeywords.some((item) => combined.toLowerCase().includes(item.toLowerCase()));
+    const algoInText = algoKeywords.some((item) => combined.toLowerCase().includes(item.toLowerCase()));
+    if (!agentInText || !algoInText) continue;
+
+    const reasons: string[] = [];
+    let score = 0;
+    if (title.includes(company)) {
+      score += 2;
+      reasons.push('company:title');
+    } else {
+      score += 1;
+      reasons.push('company:body');
+    }
+    if (agentKeywords.some((item) => title.toLowerCase().includes(item.toLowerCase()))) {
+      score += 2;
+      reasons.push('agent:title');
+    } else {
+      score += 1;
+      reasons.push('agent:body');
+    }
+    if (algoKeywords.some((item) => title.toLowerCase().includes(item.toLowerCase()))) {
+      score += 2;
+      reasons.push('algo:title');
+    } else {
+      score += 1;
+      reasons.push('algo:body');
+    }
+
+    const strength = score >= 6 ? 'strong' : 'medium';
+    rows.push({
+      note_id: note.note_id,
+      title,
+      company,
+      published_at: note.published_at,
+      query,
+      author: note.author || null,
+      url: note.url,
+      strength,
+      match_reasons: reasons,
+      seller_flag: Boolean(note.seller_flag),
+      purchase_link_flag: Boolean(note.purchase_link_flag),
+    });
+  }
+
+  return rows.sort((left, right) => {
+    if (left.strength !== right.strength) {
+      return left.strength === 'strong' ? -1 : 1;
+    }
+    return `${left.company} ${left.published_at || ''} ${left.title}`.localeCompare(
+      `${right.company} ${right.published_at || ''} ${right.title}`,
+    );
+  });
 }

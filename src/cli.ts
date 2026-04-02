@@ -15,6 +15,7 @@ Usage:
   interviewops init [--workspace PATH] [--force]
   interviewops template [--workspace PATH] [--force]
   interviewops sources
+  interviewops seed-import [--workspace PATH] [--prd PATH] [--source-notes PATH]
   interviewops harvest [--workspace PATH] [--prd PATH]
   interviewops hydrate [--workspace PATH] [--prd PATH] [--limit N]
   interviewops comments [--workspace PATH] [--prd PATH] [--limit N]
@@ -41,6 +42,7 @@ Environment:
 Examples:
   interviewops sources
   interviewops template
+  interviewops seed-import --source-notes /path/to/xhs_notes.json
   interviewops harvest
   interviewops hydrate --limit 12
   interviewops comments --limit 8
@@ -189,6 +191,15 @@ async function main(): Promise<void> {
     case 'status':
       process.stdout.write(`${JSON.stringify(pipeline.status(), null, 2)}\n`);
       break;
+    case 'seed-import': {
+      const sourceNotesPath = String(parsed.options['source-notes'] || pipeline.config.seedSourceNotesPath || '').trim();
+      if (!sourceNotesPath) {
+        throw new Error('seed-import requires --source-notes PATH or seedSourceNotesPath in config');
+      }
+      const imported = pipeline.seedImportNotes(path.resolve(sourceNotesPath));
+      process.stdout.write(`${JSON.stringify(imported, null, 2)}\n`);
+      break;
+    }
     case 'harvest':
       pipeline.harvestIncremental();
       process.stdout.write('harvest ok\n');

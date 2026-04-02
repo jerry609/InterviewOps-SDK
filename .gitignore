@@ -10,8 +10,10 @@ reports/xhs-miangjing/*.log
 !interview_data/.gitkeep
 !reports/xhs-miangjing/.gitkeep
 workspaces/**/interview_data/*.json
+workspaces/**/interview_data/
 workspaces/**/reports/**/*.json
 workspaces/**/reports/**/*.md
 workspaces/**/reports/**/*.html
 workspaces/**/reports/**/*.log
+workspaces/**/reports/
 workspaces/**/.omx/

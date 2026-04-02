@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applySellerWhitelist, collectStats, detectPurchaseLinks, detectSellerSignals, extractQuestions, inferTopics, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
+import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractQuestions, inferTopics, parseApproxPublishedAt, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
 import type { XhsNote } from './types.js';
 
 describe('heuristics', () => {
@@ -42,6 +42,47 @@ describe('heuristics', () => {
     expect(purchase.flag).toBe(true);
     expect(purchase.links.some((item) => item.includes('tb.cn'))).toBe(true);
     expect(purchase.tags).toContain('购买链接');
+  });
+
+  it('builds scoped candidates for agent/llm algo notes', () => {
+    const rows = buildScopeCandidates(
+      [
+        {
+          note_id: '1',
+          url: 'https://example.com/1',
+          title: '腾讯 Agent 算法面经',
+          query: 'Agent 面经',
+          first_seen_at: 'a',
+          last_seen_at: 'b',
+          crawl_source: 'c',
+          content: '智能体 算法 问题记录',
+          published_at: '2026-03-12',
+        },
+        {
+          note_id: '2',
+          url: 'https://example.com/2',
+          title: '腾讯 后端面经',
+          query: '面经',
+          first_seen_at: 'a',
+          last_seen_at: 'b',
+          crawl_source: 'c',
+          content: '后端 java',
+          published_at: '2026-03-12',
+        },
+      ],
+      {
+        since: '2026-02-01',
+        companies: ['腾讯'],
+        agentKeywords: ['agent', '智能体', 'llm'],
+        algoKeywords: ['算法', 'nlp'],
+        excludeTitleKeywords: ['后端', '前端'],
+      },
+      new Date('2026-04-02T14:23:01+08:00'),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].note_id).toBe('1');
+    expect(parseApproxPublishedAt('3天前广东', new Date('2026-04-02T14:23:01+08:00'))).not.toBeNull();
   });
 
   it('parses company, rounds and stats', () => {

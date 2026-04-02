@@ -42,6 +42,7 @@ export type QueryState = {
 };
 
 export type PipelineStageName =
+  | 'seed'
   | 'harvest'
   | 'hydrate'
   | 'comments'
@@ -144,6 +145,14 @@ export type XhsPrdConfig = {
   source?: string;
   queries: string[];
   sellerWhitelist?: SellerWhitelistConfig;
+  seedSourceNotesPath?: string;
+  scopeFilter?: {
+    since?: string;
+    companies?: string[];
+    agentKeywords?: string[];
+    algoKeywords?: string[];
+    excludeTitleKeywords?: string[];
+  };
   dataDir?: string;
   reportDir?: string;
   stateFile?: string;
@@ -189,4 +198,18 @@ export type PipelineStatus = {
     title_keywords: number;
     urls: number;
   };
+};
+
+export type ScopeCandidate = {
+  note_id: string;
+  title: string;
+  company: string;
+  published_at?: string | null;
+  query: string;
+  author?: string | null;
+  url: string;
+  strength: 'strong' | 'medium';
+  match_reasons: string[];
+  seller_flag: boolean;
+  purchase_link_flag: boolean;
 };

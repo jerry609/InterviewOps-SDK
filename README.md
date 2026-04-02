@@ -74,6 +74,7 @@ Main commands:
 npm run dev -- init
 npm run dev -- template
 npm run dev -- sources
+npm run dev -- seed-import --source-notes /path/to/xhs_notes.json
 npm run dev -- harvest
 npm run dev -- hydrate --limit 12
 npm run dev -- comments --limit 8
@@ -122,6 +123,7 @@ Command notes:
 
 - `template`: copies the bundled LaTeX interview template into the workspace
 - `sources`: lists currently built-in source adapters
+- `seed-import`: imports scoped seed notes from an existing `xhs_notes.json` into the target workspace
 - `harvest`: runs incremental search only
 - `hydrate`: fills note detail content only
 - `comments`: enriches comments only
@@ -156,6 +158,15 @@ That makes the SDK run commands like:
 
 ```bash
 npm -C /path/to/opencli run dev -- xiaohongshu search ...
+```
+
+If live XHS search is unstable, you can seed a dedicated workspace from an
+existing notes library first:
+
+```bash
+npm run dev -- seed-import \
+  --workspace ./workspaces/xhs-agent-algo-feb2026 \
+  --source-notes /home/master1/opencli/interview_data/xhs_notes.json
 ```
 
 ## OMX Stabilization
@@ -357,24 +368,47 @@ What this dedicated loop is meant to collect:
 - `算法岗 / NLP / 大模型算法`
 - interview-note style content
 
-Primary query family includes:
+It now uses a two-step strategy:
 
-- `腾讯 agent 算法 面经`
-- `腾讯 llm 算法 面经`
-- `字节 agent 算法 面经`
-- `字节 llm 算法 面经`
-- `阿里 agent 算法 面经`
-- `阿里 llm 算法 面经`
-- `美团 agent 算法 面经`
-- `美团 llm 算法 面经`
+1. broad Xiaohongshu search queries
+2. local `scopeFilter` narrowing to the exact `Agent/LLM + 算法岗 + 大厂 + 2026-02-01+` slice
+
+This is intentional because overly narrow XHS queries like
+`腾讯 agent 算法 面经` were timing out in practice.
+
+Primary broad query family includes:
+
+- `腾讯 面经`
+- `字节 面经`
+- `阿里 面经`
+- `美团 面经`
+- `百度 面经`
+- `京东 面经`
+- `快手 面经`
 - `LLM 算法 面经`
-- `llm agent 算法 面经`
+- `LLM 面经`
+- `智能体 面经`
+- `Agent 面经`
+- `算法 面经`
+- `NLP 面经`
 
 Persisted outputs land in that workspace:
 
 - `interview_data/xhs_notes.json`
 - `interview_data/xhs_questions.json`
 - `reports/xhs-agent-algo-feb2026/`
+
+Curated filtered outputs land here:
+
+- `reports/xhs-agent-algo-feb2026/scope_candidates.json`
+- `reports/xhs-agent-algo-feb2026/scope_candidates.md`
+
+If live search keeps timing out, recommended flow is:
+
+1. `seed-import` from an existing `xhs_notes.json`
+2. `export`
+3. `status`
+4. resume `ralph-loop` only after `opencli xiaohongshu search` is stable again
 
 Recommended ways to monitor it:
 

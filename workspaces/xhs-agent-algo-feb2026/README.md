@@ -9,6 +9,13 @@
 - `算法岗 / NLP / 大模型算法`
 - 面经类笔记
 
+策略不是直接用超窄 query 硬搜，而是：
+
+- 先用更宽的 query 抓面经候选
+- 再按本地 `scopeFilter` 过滤出 `Agent/LLM + 算法岗 + 大厂 + 2026-02-01 以后`
+
+这样能规避小红书搜索对超窄 query 的超时问题。
+
 主配置：
 
 - [`interviewops.xhs.json`](./interviewops.xhs.json)
@@ -24,6 +31,8 @@ npm run dev -- ralph-loop 6 --workspace /home/master1/InterviewOps-SDK/workspace
 
 - `./interview_data/xhs_notes.json`
 - `./interview_data/xhs_questions.json`
+- `./reports/xhs-agent-algo-feb2026/scope_candidates.json`
+- `./reports/xhs-agent-algo-feb2026/scope_candidates.md`
 - `./reports/xhs-agent-algo-feb2026/`
 
 说明：

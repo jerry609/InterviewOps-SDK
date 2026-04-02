@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { OpenCliRunner } from './adapters/opencli.js';
 import { createSourceAdapter } from './adapters/xiaohongshu.js';
 import type { InterviewSourceAdapter } from './adapters/types.js';
-import { applySellerWhitelist, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
+import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
 import type { DoctorCheck, PipelineOperationRecord, PipelineOptions, PipelineStageName, PipelineStatus, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
@@ -17,6 +17,14 @@ const DEFAULT_PRD: Required<XhsPrdConfig> = {
     note_ids: [],
     title_keywords: [],
     urls: [],
+  },
+  seedSourceNotesPath: '',
+  scopeFilter: {
+    since: '',
+    companies: [],
+    agentKeywords: [],
+    algoKeywords: [],
+    excludeTitleKeywords: [],
   },
   dataDir: './interview_data',
   reportDir: './reports/xhs-miangjing',
@@ -50,6 +58,8 @@ export class InterviewOpsPipeline {
   readonly sellerSummaryPath: string;
   readonly authorSellerSummaryPath: string;
   readonly sellerReportPath: string;
+  readonly scopeReportJsonPath: string;
+  readonly scopeReportMarkdownPath: string;
   readonly runHistoryPath: string;
   readonly statusPath: string;
 
@@ -76,6 +86,8 @@ export class InterviewOpsPipeline {
     this.sellerSummaryPath = path.resolve(this.reportDir, 'seller_candidates.json');
     this.authorSellerSummaryPath = path.resolve(this.reportDir, 'author_seller_summary.json');
     this.sellerReportPath = path.resolve(this.reportDir, 'seller_summary.md');
+    this.scopeReportJsonPath = path.resolve(this.reportDir, 'scope_candidates.json');
+    this.scopeReportMarkdownPath = path.resolve(this.reportDir, 'scope_candidates.md');
     this.runHistoryPath = path.resolve(this.reportDir, 'run_history.jsonl');
     this.statusPath = path.resolve(this.reportDir, 'status.json');
 
@@ -174,6 +186,58 @@ export class InterviewOpsPipeline {
     });
 
     return checks;
+  }
+
+  seedImportNotes(sourceNotesPath: string): { imported: number; merged_total: number; source_path: string } {
+    const startedAt = Date.now();
+    const sourceNotes = readJsonFile<XhsNote[]>(sourceNotesPath, []);
+    const scope = this.config.scopeFilter;
+    if (!scope) {
+      throw new Error('seed import requires scopeFilter in config');
+    }
+
+    const candidateIds = new Set(buildScopeCandidates(sourceNotes, scope, new Date()).map((item) => item.note_id));
+    const existing = new Map(this.readNotes().map((note) => [note.note_id, note]));
+    let imported = 0;
+    for (const note of sourceNotes) {
+      if (!candidateIds.has(note.note_id)) {
+        continue;
+      }
+      const current = existing.get(note.note_id);
+      if (current) {
+        existing.set(note.note_id, {
+          ...note,
+          ...current,
+          interview_questions: (current.interview_questions && current.interview_questions.length > 0)
+            ? current.interview_questions
+            : note.interview_questions,
+          comments: current.comments ?? note.comments,
+          content: current.content || note.content,
+          last_seen_at: note.last_seen_at || current.last_seen_at,
+        });
+      } else {
+        existing.set(note.note_id, { ...note });
+        imported += 1;
+      }
+    }
+
+    const merged = [...existing.values()].sort((a, b) =>
+      `${b.published_at || ''}${b.note_id}`.localeCompare(`${a.published_at || ''}${a.note_id}`),
+    );
+    this.writeNotes(merged);
+    this.exportAll();
+    this.validate(false);
+    this.recordOperation('seed', {
+      ok: true,
+      detail: `imported=${imported}, merged_total=${merged.length}`,
+      item_count: imported,
+      duration_ms: Date.now() - startedAt,
+    });
+    return {
+      imported,
+      merged_total: merged.length,
+      source_path: sourceNotesPath,
+    };
   }
 
   harvestIncremental(): void {
@@ -690,6 +754,42 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     fs.writeFileSync(this.sellerReportPath, markdown, 'utf8');
   }
 
+  exportScopeReport(): void {
+    const scope = this.config.scopeFilter;
+    if (!scope || (!scope.since && !(scope.companies || []).length)) {
+      return;
+    }
+
+    const rows = buildScopeCandidates(this.readNotes(), scope, new Date());
+    writeJsonFile(this.scopeReportJsonPath, {
+      scope,
+      total_candidates: rows.length,
+      strong: rows.filter((item) => item.strength === 'strong').length,
+      medium: rows.filter((item) => item.strength === 'medium').length,
+      rows,
+    });
+
+    const markdown = [
+      '# Scope Candidates',
+      '',
+      `total: ${rows.length}`,
+      `strong: ${rows.filter((item) => item.strength === 'strong').length}`,
+      `medium: ${rows.filter((item) => item.strength === 'medium').length}`,
+      '',
+      '## Strong',
+      ...rows
+        .filter((item) => item.strength === 'strong')
+        .map((item) => `- ${item.company} | ${item.published_at || ''} | ${item.title} | seller=${item.seller_flag} | purchase=${item.purchase_link_flag} | ${item.url}`),
+      '',
+      '## Medium',
+      ...rows
+        .filter((item) => item.strength === 'medium')
+        .map((item) => `- ${item.company} | ${item.published_at || ''} | ${item.title} | reasons=${item.match_reasons.join(',')} | seller=${item.seller_flag} | purchase=${item.purchase_link_flag} | ${item.url}`),
+      '',
+    ].join('\n');
+    fs.writeFileSync(this.scopeReportMarkdownPath, markdown, 'utf8');
+  }
+
   exportOverviewBundle(recordStage = true): void {
     const startedAt = Date.now();
     this.normalizeQuestionsAndSellerFlags(false);
@@ -697,6 +797,7 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     this.exportTopicReports(rows);
     this.exportOverview(rows);
     this.exportSellerReports();
+    this.exportScopeReport();
     if (recordStage) {
       this.recordOperation('overview', {
         ok: true,
@@ -714,6 +815,7 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     this.exportTopicReports(rows);
     this.exportOverview(rows);
     this.exportSellerReports();
+    this.exportScopeReport();
     this.recordOperation('export', {
       ok: true,
       detail: `questions=${rows.length}`,
