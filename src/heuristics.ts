@@ -1,4 +1,4 @@
-import type { SellerAuthorSummary, SellerSignal, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
+import type { PurchaseLinkSignal, SellerAuthorSummary, SellerSignal, SellerWhitelistConfig, SellerWhitelistDecision, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
 
 const COMPANY_NAMES = [
   '腾讯', '字节', '美团', '阿里', '阿里云', '通义', '蚂蚁', '京东', '百度', '快手',
@@ -15,6 +15,22 @@ const SELLER_PATTERNS = [
   { tag: '简历服务', regex: /简历|看简历|改简历|简历辅导|简历投递|投递助手/gi, weight: 0.45 },
   { tag: '导流转化', regex: /滴滴我|私信|私聊|加v|vx|v我|内推|offer大楼|咨询/gi, weight: 0.35 },
   { tag: '卖课训练营', regex: /训练营|课程|社群|陪跑|求职服务|一对一/gi, weight: 0.4 },
+];
+
+const PURCHASE_DOMAIN_PATTERNS = [
+  /https?:\/\/(?:e\.)?tb\.cn\/[^\s]+/gi,
+  /https?:\/\/(?:item|detail)\.(?:taobao|tmall)\.com\/[^\s]+/gi,
+  /https?:\/\/(?:u\.)?jd\.com\/[^\s]+/gi,
+  /https?:\/\/(?:item\.)?jd\.com\/[^\s]+/gi,
+  /https?:\/\/(?:mobile\.)?yangkeduo\.com\/[^\s]+/gi,
+  /https?:\/\/(?:weidian\.com|koudai\.com)\/[^\s]+/gi,
+  /https?:\/\/(?:www\.)?xiaohongshu\.com\/(?:goods-detail|store|shop|discovery\/item)\/[^\s]+/gi,
+];
+
+const PURCHASE_TEXT_PATTERNS = [
+  { tag: '购买链接', regex: /购买链接|商品链接|下单链接|店铺链接|拍下链接/gi, weight: 0.45 },
+  { tag: '电商平台', regex: /淘宝|天猫|京东|拼多多|微店/gi, weight: 0.25 },
+  { tag: '站内导购', regex: /橱窗|小黄车|店铺首页|商品卡|立即购买/gi, weight: 0.25 },
 ];
 
 export function nowIsoUtc8(): string {
@@ -158,6 +174,78 @@ export function detectSellerSignals(note: Pick<XhsNote, 'title' | 'content' | 'a
   };
 }
 
+export function applySellerWhitelist(
+  note: Pick<XhsNote, 'note_id' | 'author' | 'title' | 'url'>,
+  whitelist?: SellerWhitelistConfig,
+): SellerWhitelistDecision {
+  if (!whitelist) {
+    return { whitelisted: false, reason: '' };
+  }
+
+  const author = String(note.author || '').trim();
+  const noteId = String(note.note_id || '').trim();
+  const title = String(note.title || '').trim();
+  const url = String(note.url || '').trim();
+
+  if ((whitelist.note_ids || []).includes(noteId)) {
+    return { whitelisted: true, reason: `note_id:${noteId}` };
+  }
+  if (author && (whitelist.authors || []).includes(author)) {
+    return { whitelisted: true, reason: `author:${author}` };
+  }
+  for (const keyword of whitelist.title_keywords || []) {
+    if (keyword && title.includes(keyword)) {
+      return { whitelisted: true, reason: `title_keyword:${keyword}` };
+    }
+  }
+  for (const keyword of whitelist.urls || []) {
+    if (keyword && url.includes(keyword)) {
+      return { whitelisted: true, reason: `url:${keyword}` };
+    }
+  }
+  return { whitelisted: false, reason: '' };
+}
+
+export function detectPurchaseLinks(note: Pick<XhsNote, 'title' | 'content' | 'comments'>): PurchaseLinkSignal {
+  const parts = [
+    String(note.title || ''),
+    String(note.content || ''),
+    ...(note.comments || []).map((item) => String(item.content || '')),
+  ];
+  const haystack = parts.join('\n');
+  const links = new Set<string>();
+  const tags = new Set<string>();
+  let confidence = 0;
+
+  for (const pattern of PURCHASE_DOMAIN_PATTERNS) {
+    const matches = haystack.match(pattern) || [];
+    for (const match of matches) {
+      links.add(match.trim());
+    }
+  }
+
+  if (links.size > 0) {
+    tags.add('购买链接');
+    confidence += 0.6;
+  }
+
+  for (const rule of PURCHASE_TEXT_PATTERNS) {
+    if (rule.regex.test(haystack)) {
+      tags.add(rule.tag);
+      confidence += rule.weight;
+    }
+    rule.regex.lastIndex = 0;
+  }
+
+  confidence = Math.min(0.99, Number(confidence.toFixed(2)));
+  return {
+    flag: links.size > 0 || confidence >= 0.45,
+    links: [...links],
+    tags: [...tags],
+    confidence,
+  };
+}
+
 export function collectStats(notes: XhsNote[]): XhsStats {
   return {
     notes: notes.length,
@@ -165,6 +253,8 @@ export function collectStats(notes: XhsNote[]): XhsStats {
     questionsFilled: notes.filter((note) => (note.interview_questions || []).length > 0).length,
     commentsEnriched: notes.filter((note) => note.comments != null).length,
     sellerFlagged: notes.filter((note) => Boolean(note.seller_flag)).length,
+    sellerWhitelisted: notes.filter((note) => Boolean(note.seller_whitelisted)).length,
+    purchaseLinkFlagged: notes.filter((note) => Boolean(note.purchase_link_flag)).length,
   };
 }
 

@@ -24,8 +24,14 @@ export type XhsNote = {
   content?: string | null;
   detail_fetched_at?: string | null;
   seller_flag?: boolean | null;
+  seller_whitelisted?: boolean | null;
+  seller_whitelist_reason?: string | null;
   seller_tags?: string[] | null;
   seller_confidence?: number | null;
+  purchase_link_flag?: boolean | null;
+  purchase_links?: string[] | null;
+  purchase_link_tags?: string[] | null;
+  purchase_link_confidence?: number | null;
 };
 
 export type QueryState = {
@@ -72,6 +78,8 @@ export type XhsStats = {
   questionsFilled: number;
   commentsEnriched: number;
   sellerFlagged: number;
+  sellerWhitelisted: number;
+  purchaseLinkFlagged: number;
 };
 
 export type XhsQuestionRow = {
@@ -87,14 +95,39 @@ export type XhsQuestionRow = {
   rounds: string;
   topics: string[];
   seller_flag: boolean;
+  seller_whitelisted: boolean;
+  seller_whitelist_reason: string;
   seller_tags: string[];
   seller_confidence: number;
+  purchase_link_flag: boolean;
+  purchase_links: string[];
+  purchase_link_tags: string[];
+  purchase_link_confidence: number;
 };
 
 export type SellerSignal = {
   flag: boolean;
   tags: string[];
   confidence: number;
+};
+
+export type PurchaseLinkSignal = {
+  flag: boolean;
+  links: string[];
+  tags: string[];
+  confidence: number;
+};
+
+export type SellerWhitelistConfig = {
+  authors?: string[];
+  note_ids?: string[];
+  title_keywords?: string[];
+  urls?: string[];
+};
+
+export type SellerWhitelistDecision = {
+  whitelisted: boolean;
+  reason: string;
 };
 
 export type SellerAuthorSummary = {
@@ -110,6 +143,7 @@ export type SellerAuthorSummary = {
 export type XhsPrdConfig = {
   source?: string;
   queries: string[];
+  sellerWhitelist?: SellerWhitelistConfig;
   dataDir?: string;
   reportDir?: string;
   stateFile?: string;
@@ -149,4 +183,10 @@ export type PipelineStatus = {
     with_errors: number;
   };
   operations: PipelineOperationRecord[];
+  whitelist: {
+    authors: number;
+    note_ids: number;
+    title_keywords: number;
+    urls: number;
+  };
 };

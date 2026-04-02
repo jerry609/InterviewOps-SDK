@@ -59,6 +59,7 @@ Main commands:
 
 ```bash
 npm run dev -- init
+npm run dev -- template
 npm run dev -- sources
 npm run dev -- harvest
 npm run dev -- hydrate --limit 12
@@ -103,6 +104,7 @@ npm run dev -- omx-safe doctor
 
 Command notes:
 
+- `template`: copies the bundled LaTeX interview template into the workspace
 - `sources`: lists currently built-in source adapters
 - `harvest`: runs incremental search only
 - `hydrate`: fills note detail content only
@@ -176,6 +178,9 @@ reports/xhs-miangjing/
   author_seller_summary.json
   seller_summary.md
   progress.log
+templates/
+  interview-note-template.tex
+  interview-note-template.pdf
 ```
 
 ## Workspace Init
@@ -221,6 +226,7 @@ The PRD now includes:
 
 - `source`
 - query list
+- `sellerWhitelist`
 - data/report/state paths
 - search/detail/comment batch and timeout policy
 - harvest/sleep cadence
@@ -244,6 +250,50 @@ These fields are propagated into:
 - `author_seller_summary.json`
 - `seller_summary.md`
 
+Whitelist config example:
+
+```json
+{
+  "sellerWhitelist": {
+    "authors": ["可信作者A"],
+    "note_ids": ["69c9d37b0000000023007921"],
+    "title_keywords": ["内部分享"],
+    "urls": ["example.com/trusted"]
+  }
+}
+```
+
+Whitelisted notes keep raw seller tags/confidence for debugging, but:
+
+- `seller_flag` will be forced to `false`
+- `seller_whitelisted` will be `true`
+- `seller_whitelist_reason` records the match source
+
+## Purchase Link Detection
+
+The SDK also marks notes that appear to contain purchase links.
+
+Current outputs include:
+
+- `purchase_link_flag`
+- `purchase_links`
+- `purchase_link_tags`
+- `purchase_link_confidence`
+
+Detection combines:
+
+- explicit commerce URLs
+- purchase-link phrases
+- e-commerce platform mentions
+
+These fields are surfaced in:
+
+- note JSON
+- question JSON
+- topic HTML
+- overview HTML
+- seller summary markdown
+
 ## Source Adapters
 
 Current built-in adapters:
@@ -260,6 +310,19 @@ The pipeline now resolves a source adapter from config:
 
 That keeps the CLI stable while making it possible to add more sources later
 without rewriting pipeline orchestration.
+
+## LaTeX Template
+
+Bundled assets:
+
+- [`templates/interview-note-template.tex`](./templates/interview-note-template.tex)
+- [`templates/interview-note-template.pdf`](./templates/interview-note-template.pdf)
+
+Copy them into your workspace:
+
+```bash
+npm run dev -- template
+```
 
 ## Auto Commit
 

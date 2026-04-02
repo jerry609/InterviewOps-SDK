@@ -1,0 +1,189 @@
+\documentclass[UTF8,a4paper,11pt]{ctexart}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\setlist[itemize]{leftmargin=1.8em}
+\setlist[enumerate]{leftmargin=2em}
+\titleformat{\section}{\large\bfseries}{}{0em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+\newcommand{\Company}{公司名称}
+\newcommand{\Role}{岗位名称}
+\newcommand{\InterviewType}{实习 / 校招 / 社招}
+\newcommand{\RoundInfo}{一面 / 二面 / HR面}
+\newcommand{\ResultInfo}{通过 / 挂掉 / OC / 待定}
+\newcommand{\InterviewDate}{2026-04-02}
+\newcommand{\InterviewSource}{小红书 / 牛客 / 个人经历}
+\newcommand{\OriginalLink}{https://example.com}
+\newcommand{\AuthorName}{作者或整理人}
+
+\newcommand{\questionentry}[4]{
+  \item \textbf{问题：} #1
+
+  \textbf{我的回答：} #2
+
+  \textbf{面试官追问 / 评价：} #3
+
+  \textbf{标签：} #4
+}
+
+\begin{document}
+
+\begin{center}
+  {\LARGE \textbf{面经记录模板}}\\[0.5em]
+  {\large \Company{}｜\Role}
+\end{center}
+
+\vspace{0.8em}
+
+\section*{一、基本信息}
+
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.16\textwidth}X>{\bfseries}p{0.16\textwidth}X}
+\toprule
+公司 & \Company & 岗位 & \Role \\
+面试类型 & \InterviewType & 面试轮次 & \RoundInfo \\
+面试日期 & \InterviewDate & 当前结果 & \ResultInfo \\
+信息来源 & \InterviewSource & 原始链接 & \url{\OriginalLink} \\
+整理人 & \AuthorName & 备注 & 可填写业务线、部门、地区等 \\
+\bottomrule
+\end{tabularx}
+
+\section*{二、时间线}
+
+\begin{itemize}
+  \item 投递时间：\underline{\hspace{8em}}
+  \item 约面时间：\underline{\hspace{8em}}
+  \item 面试时长：\underline{\hspace{8em}}
+  \item 面试形式：电话 / 视频 / 现场 / 在线 coding
+  \item 后续进展：\underline{\hspace{18em}}
+\end{itemize}
+
+\section*{三、面试流程概览}
+
+\begin{itemize}
+  \item 自我介绍：是否要求，侧重点是什么
+  \item 项目拷打：主要围绕哪些项目 / 经历展开
+  \item 八股 / 基础：集中在哪些知识域
+  \item coding / 手撕：是否有，题型是什么
+  \item 场景题 / 开放题：是否有系统设计、业务理解、案例分析
+\end{itemize}
+
+\section*{四、问题清单}
+
+\subsection*{4.1 技术问题}
+\begin{enumerate}
+  \questionentry
+    {请介绍一下你在项目中如何处理正负样本极度不均衡的问题？}
+    {可填写你的原始回答，尽量保留面试现场表达。}
+    {例如：继续追问潜在正样本挖掘、负样本去噪、指标选择。}
+    {推荐系统 / 排序 / 机器学习}
+
+  \questionentry
+    {为什么工业界更偏好 GAUC 而不是全局 AUC？}
+    {填写回答。}
+    {例如：追问 user bias、活跃度差异、线上评估含义。}
+    {推荐系统 / 评估指标}
+
+  \questionentry
+    {你怎么看 SFT、DPO、RLHF 之间的关系？}
+    {填写回答。}
+    {例如：追问 reward hacking、数据构造、适用边界。}
+    {大模型 / 对齐}
+\end{enumerate}
+
+\subsection*{4.2 项目追问}
+\begin{enumerate}
+  \questionentry
+    {你这个 Agent 项目的 planning 是框架做的，还是模型自己做的？}
+    {填写回答。}
+    {例如：继续追问 memory、tool calling、失败恢复。}
+    {Agent / 架构设计}
+
+  \questionentry
+    {如果重做一遍这个项目，你会改什么？}
+    {填写回答。}
+    {例如：追问性能瓶颈、数据闭环、评估方式。}
+    {项目复盘 / 工程化}
+\end{enumerate}
+
+\subsection*{4.3 coding / 手撕}
+\begin{enumerate}
+  \questionentry
+    {最长递增子序列，要求 $O(n \log n)$。}
+    {填写你的解法思路、是否写出来、哪里卡住。}
+    {例如：是否追问复杂度、边界条件、替代写法。}
+    {算法题 / coding}
+\end{enumerate}
+
+\section*{五、面试官关注点总结}
+
+\begin{itemize}
+  \item 更看重：项目深度 / 八股基础 / coding / 业务理解 / 沟通表达
+  \item 高频追问：\underline{\hspace{20em}}
+  \item 明显短板：\underline{\hspace{20em}}
+  \item 面试风格：压力面 / 聊天面 / 细节拷打 / 开放讨论
+\end{itemize}
+
+\section*{六、复盘}
+
+\subsection*{6.1 我答得好的地方}
+\begin{itemize}
+  \item 
+  \item 
+\end{itemize}
+
+\subsection*{6.2 我答得不好的地方}
+\begin{itemize}
+  \item 
+  \item 
+\end{itemize}
+
+\subsection*{6.3 下次要补的知识点}
+\begin{itemize}
+  \item 
+  \item 
+  \item 
+\end{itemize}
+
+\section*{七、可结构化抽取字段}
+
+如果你后续希望把面经导入 JSON / 数据库，建议保留这些字段：
+
+\begin{itemize}
+  \item company
+  \item role
+  \item interview\_type
+  \item rounds
+  \item published\_at
+  \item result
+  \item question\_list
+  \item coding\_questions
+  \item followup\_questions
+  \item tags
+  \item source\_url
+  \item author
+\end{itemize}
+
+\section*{八、使用建议}
+
+\begin{itemize}
+  \item 如果是自己面试经历，建议原始问题尽量逐条记录，不要先“总结”，避免丢信息。
+  \item 如果是从小红书 / 牛客整理，建议把“原文内容”和“你自己归纳的问题列表”分开保存。
+  \item 如果后续要做统计分析，建议统一公司名、轮次名、岗位名，例如“腾讯 / 一面 / 大模型算法”。
+\end{itemize}
+
+\end{document}

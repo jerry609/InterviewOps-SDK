@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { OpenCliRunner } from './adapters/opencli.js';
 import { createSourceAdapter } from './adapters/xiaohongshu.js';
 import type { InterviewSourceAdapter } from './adapters/types.js';
-import { collectStats, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
+import { applySellerWhitelist, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
 import type { DoctorCheck, PipelineOperationRecord, PipelineOptions, PipelineStageName, PipelineStatus, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
@@ -12,6 +12,12 @@ import type { DoctorCheck, PipelineOperationRecord, PipelineOptions, PipelineSta
 const DEFAULT_PRD: Required<XhsPrdConfig> = {
   source: 'xiaohongshu',
   queries: [],
+  sellerWhitelist: {
+    authors: [],
+    note_ids: [],
+    title_keywords: [],
+    urls: [],
+  },
   dataDir: './interview_data',
   reportDir: './reports/xhs-miangjing',
   stateFile: './interview_data/xhs_miangjing_state.json',
@@ -119,6 +125,12 @@ export class InterviewOpsPipeline {
         with_errors: queryRows.filter((item) => Boolean(item.last_error)).length,
       },
       operations,
+      whitelist: {
+        authors: this.config.sellerWhitelist?.authors?.length || 0,
+        note_ids: this.config.sellerWhitelist?.note_ids?.length || 0,
+        title_keywords: this.config.sellerWhitelist?.title_keywords?.length || 0,
+        urls: this.config.sellerWhitelist?.urls?.length || 0,
+      },
     };
   }
 
@@ -343,15 +355,23 @@ export class InterviewOpsPipeline {
       }
       note.interview_questions = [...merged].filter(Boolean);
       const seller = detectSellerSignals(note);
-      note.seller_flag = seller.flag;
+      const whitelist = applySellerWhitelist(note, this.config.sellerWhitelist);
+      note.seller_whitelisted = whitelist.whitelisted;
+      note.seller_whitelist_reason = whitelist.reason || null;
+      note.seller_flag = whitelist.whitelisted ? false : seller.flag;
       note.seller_tags = seller.tags;
       note.seller_confidence = seller.confidence;
+      const purchaseLink = detectPurchaseLinks(note);
+      note.purchase_link_flag = purchaseLink.flag;
+      note.purchase_links = purchaseLink.links;
+      note.purchase_link_tags = purchaseLink.tags;
+      note.purchase_link_confidence = purchaseLink.confidence;
     }
     this.writeNotes(notes);
     if (recordStage) {
       this.recordOperation('normalize', {
         ok: true,
-        detail: `notes=${notes.length}, seller_flagged=${notes.filter((note) => note.seller_flag).length}`,
+        detail: `notes=${notes.length}, seller_flagged=${notes.filter((note) => note.seller_flag).length}, whitelisted=${notes.filter((note) => note.seller_whitelisted).length}, purchase_links=${notes.filter((note) => note.purchase_link_flag).length}`,
         item_count: notes.length,
         duration_ms: Date.now() - startedAt,
       });
@@ -367,8 +387,14 @@ export class InterviewOpsPipeline {
       const company = parseCompany(`${note.title} ${note.content || ''}`);
       const rounds = parseRounds(`${note.title} ${note.content || ''}`);
       const sellerFlag = Boolean(note.seller_flag);
+      const sellerWhitelisted = Boolean(note.seller_whitelisted);
+      const sellerWhitelistReason = String(note.seller_whitelist_reason || '');
       const sellerTags = note.seller_tags || [];
       const sellerConfidence = Number(note.seller_confidence || 0);
+      const purchaseLinkFlag = Boolean(note.purchase_link_flag);
+      const purchaseLinks = note.purchase_links || [];
+      const purchaseLinkTags = note.purchase_link_tags || [];
+      const purchaseLinkConfidence = Number(note.purchase_link_confidence || 0);
 
       (note.interview_questions || []).forEach((question, index) => {
         const normalized = normalizeQuestion(question);
@@ -386,8 +412,14 @@ export class InterviewOpsPipeline {
           rounds,
           topics: inferTopics(note.title, note.query, normalized),
           seller_flag: sellerFlag,
+          seller_whitelisted: sellerWhitelisted,
+          seller_whitelist_reason: sellerWhitelistReason,
           seller_tags: sellerTags,
           seller_confidence: sellerConfidence,
+          purchase_link_flag: purchaseLinkFlag,
+          purchase_links: purchaseLinks,
+          purchase_link_tags: purchaseLinkTags,
+          purchase_link_confidence: purchaseLinkConfidence,
         };
         const key = questionRowKey(row);
         if (!seen.has(key)) {
@@ -435,6 +467,7 @@ export class InterviewOpsPipeline {
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; word-break: break-word; }
     th { background: #f5f5f5; }
     .seller { color: #b42318; font-weight: 600; }
+    .purchase { color: #0550ae; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -442,10 +475,10 @@ export class InterviewOpsPipeline {
   <p>count: ${bucket.length}</p>
   <table>
     <thead>
-      <tr><th>company</th><th>rounds</th><th>seller</th><th>published_at</th><th>title</th><th>question</th><th>url</th></tr>
+      <tr><th>company</th><th>rounds</th><th>seller</th><th>purchase</th><th>published_at</th><th>title</th><th>question</th><th>url</th></tr>
     </thead>
     <tbody>
-      ${bucket.map((item) => `<tr><td>${escapeHtml(item.company)}</td><td>${escapeHtml(item.rounds)}</td><td class="${item.seller_flag ? 'seller' : ''}">${item.seller_flag ? escapeHtml(item.seller_tags.join(' / ') || 'seller') : ''}</td><td>${escapeHtml(item.published_at || '')}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.question)}</td><td><a href="${escapeHtml(item.url)}">link</a></td></tr>`).join('')}
+      ${bucket.map((item) => `<tr><td>${escapeHtml(item.company)}</td><td>${escapeHtml(item.rounds)}</td><td class="${item.seller_flag ? 'seller' : ''}">${item.seller_flag ? escapeHtml(item.seller_tags.join(' / ') || 'seller') : (item.seller_whitelisted ? escapeHtml(`whitelisted:${item.seller_whitelist_reason}`) : '')}</td><td class="${item.purchase_link_flag ? 'purchase' : ''}">${item.purchase_link_flag ? escapeHtml(item.purchase_link_tags.join(' / ') || 'purchase-link') : ''}</td><td>${escapeHtml(item.published_at || '')}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.question)}</td><td><a href="${escapeHtml(item.url)}">link</a></td></tr>`).join('')}
     </tbody>
   </table>
 </body>
@@ -455,7 +488,7 @@ export class InterviewOpsPipeline {
   }
 
   exportOverview(rows: XhsQuestionRow[]): void {
-    const summary = new Map<string, { company: string; question_count: number; rounds: Map<string, number>; topics: Map<string, number>; seller_count: number }>();
+    const summary = new Map<string, { company: string; question_count: number; rounds: Map<string, number>; topics: Map<string, number>; seller_count: number; purchase_link_count: number }>();
     const sellerNotes = this.readNotes()
       .filter((note) => note.seller_flag)
       .map((note) => ({
@@ -464,6 +497,9 @@ export class InterviewOpsPipeline {
         author: note.author || '',
         seller_tags: note.seller_tags || [],
         seller_confidence: note.seller_confidence || 0,
+        purchase_link_flag: Boolean(note.purchase_link_flag),
+        purchase_links: note.purchase_links || [],
+        purchase_link_tags: note.purchase_link_tags || [],
         url: note.url,
       }));
 
@@ -475,6 +511,7 @@ export class InterviewOpsPipeline {
         rounds: new Map<string, number>(),
         topics: new Map<string, number>(),
         seller_count: 0,
+        purchase_link_count: 0,
       };
       entry.question_count += 1;
       entry.rounds.set(row.rounds || '未知轮次', (entry.rounds.get(row.rounds || '未知轮次') || 0) + 1);
@@ -482,6 +519,7 @@ export class InterviewOpsPipeline {
         entry.topics.set(topic, (entry.topics.get(topic) || 0) + 1);
       }
       if (row.seller_flag) entry.seller_count += 1;
+      if (row.purchase_link_flag) entry.purchase_link_count += 1;
       summary.set(company, entry);
     }
 
@@ -492,6 +530,7 @@ export class InterviewOpsPipeline {
         rounds: Object.fromEntries([...item.rounds.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
         topics: Object.fromEntries([...item.topics.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
         seller_count: item.seller_count,
+        purchase_link_count: item.purchase_link_count,
       }))
       .sort((a, b) => b.question_count - a.question_count || a.company.localeCompare(b.company));
 
@@ -518,6 +557,7 @@ export class InterviewOpsPipeline {
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; word-break: break-word; }
     th { background: #f5f5f5; }
     .seller { color: #b42318; font-weight: 600; }
+    .purchase { color: #0550ae; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -526,15 +566,15 @@ export class InterviewOpsPipeline {
     <div class="card"><strong>问题数</strong><div>${rows.length}</div></div>
     <div class="card"><strong>公司数</strong><div>${summaryRows.length}</div></div>
     <div class="card"><strong>卖课标记</strong><div>${sellerNotes.length}</div></div>
-    <div class="card"><strong>数据文件</strong><div>xhs_questions.json</div></div>
+    <div class="card"><strong>购买链接</strong><div>${this.readNotes().filter((note) => note.purchase_link_flag).length}</div></div>
     <div class="card"><strong>汇总文件</strong><div>company_round_summary.json</div></div>
   </div>
 
   <h2>公司汇总</h2>
   <table>
-    <thead><tr><th>company</th><th>question_count</th><th>seller_count</th><th>rounds</th><th>topics</th></tr></thead>
+    <thead><tr><th>company</th><th>question_count</th><th>seller_count</th><th>purchase_link_count</th><th>rounds</th><th>topics</th></tr></thead>
     <tbody>
-      ${summaryRows.map((item) => `<tr><td>${escapeHtml(item.company)}</td><td>${item.question_count}</td><td>${item.seller_count}</td><td>${escapeHtml(Object.entries(item.rounds).map(([k, v]) => `${k}:${v}`).join(' | '))}</td><td>${escapeHtml(Object.entries(item.topics).map(([k, v]) => `${k}:${v}`).join(' | '))}</td></tr>`).join('')}
+      ${summaryRows.map((item) => `<tr><td>${escapeHtml(item.company)}</td><td>${item.question_count}</td><td>${item.seller_count}</td><td>${item.purchase_link_count}</td><td>${escapeHtml(Object.entries(item.rounds).map(([k, v]) => `${k}:${v}`).join(' | '))}</td><td>${escapeHtml(Object.entries(item.topics).map(([k, v]) => `${k}:${v}`).join(' | '))}</td></tr>`).join('')}
     </tbody>
   </table>
 
@@ -544,11 +584,12 @@ export class InterviewOpsPipeline {
     <label>Rounds<select id="rounds"><option value="">全部</option>${rounds.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('')}</select></label>
     <label>Topic<select id="topic"><option value="">全部</option>${topics.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('')}</select></label>
     <label>Seller<select id="seller"><option value="">全部</option><option value="seller">仅卖课/导流</option><option value="normal">仅普通</option></select></label>
+    <label>Purchase<select id="purchase"><option value="">全部</option><option value="purchase">仅含购买链接</option><option value="normal">仅无购买链接</option></select></label>
     <label>Keyword<input id="keyword" placeholder="搜索标题 / 问题 / 公司" /></label>
   </div>
   <div id="count"></div>
   <table>
-    <thead><tr><th>company</th><th>rounds</th><th>seller</th><th>published_at</th><th>title</th><th>question</th><th>url</th></tr></thead>
+    <thead><tr><th>company</th><th>rounds</th><th>seller</th><th>purchase</th><th>published_at</th><th>title</th><th>question</th><th>url</th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
   <script>
@@ -557,6 +598,7 @@ export class InterviewOpsPipeline {
     const rounds = document.getElementById('rounds');
     const topic = document.getElementById('topic');
     const seller = document.getElementById('seller');
+    const purchase = document.getElementById('purchase');
     const keyword = document.getElementById('keyword');
     const tbody = document.getElementById('tbody');
     const count = document.getElementById('count');
@@ -569,6 +611,8 @@ export class InterviewOpsPipeline {
         if (topic.value && !row.topics.includes(topic.value)) return false;
         if (seller.value === 'seller' && !row.seller_flag) return false;
         if (seller.value === 'normal' && row.seller_flag) return false;
+        if (purchase.value === 'purchase' && !row.purchase_link_flag) return false;
+        if (purchase.value === 'normal' && row.purchase_link_flag) return false;
         if (kw && ![row.company, row.title, row.question].join(' ').toLowerCase().includes(kw)) return false;
         return true;
       });
@@ -578,7 +622,8 @@ export class InterviewOpsPipeline {
         '<tr>' +
         '<td>' + escapeHtml(row.company || '') + '</td>' +
         '<td>' + escapeHtml(row.rounds || '') + '</td>' +
-        '<td class="' + (row.seller_flag ? 'seller' : '') + '">' + escapeHtml(row.seller_flag ? (row.seller_tags.join(' / ') || 'seller') : '') + '</td>' +
+        '<td class="' + (row.seller_flag ? 'seller' : '') + '">' + escapeHtml(row.seller_flag ? (row.seller_tags.join(' / ') || 'seller') : (row.seller_whitelisted ? ('whitelisted:' + (row.seller_whitelist_reason || '')) : '')) + '</td>' +
+        '<td class="' + (row.purchase_link_flag ? 'purchase' : '') + '">' + escapeHtml(row.purchase_link_flag ? (row.purchase_link_tags.join(' / ') || 'purchase-link') : '') + '</td>' +
         '<td>' + escapeHtml(row.published_at || '') + '</td>' +
         '<td>' + escapeHtml(row.title || '') + '</td>' +
         '<td>' + escapeHtml(row.question || '') + '</td>' +
@@ -596,7 +641,7 @@ export class InterviewOpsPipeline {
         .replaceAll("'", '&#39;');
     }
 
-    [company, rounds, topic, seller, keyword].forEach((el) => el.addEventListener('input', render));
+    [company, rounds, topic, seller, purchase, keyword].forEach((el) => el.addEventListener('input', render));
     render();
   </script>
 </body>
@@ -615,7 +660,12 @@ export class InterviewOpsPipeline {
         query: note.query,
         seller_tags: note.seller_tags || [],
         seller_confidence: Number(note.seller_confidence || 0),
+        seller_whitelisted: Boolean(note.seller_whitelisted),
+        seller_whitelist_reason: String(note.seller_whitelist_reason || ''),
         published_at: note.published_at || '',
+        purchase_link_flag: Boolean(note.purchase_link_flag),
+        purchase_links: note.purchase_links || [],
+        purchase_link_tags: note.purchase_link_tags || [],
         url: note.url,
       }))
       .sort((a, b) => b.seller_confidence - a.seller_confidence || a.author.localeCompare(b.author));
@@ -635,7 +685,7 @@ ${authorSummary.map((item) => `- ${item.author}: note_count=${item.note_count}, 
 
 ## 笔记候选
 
-${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${item.seller_confidence} | tags=${item.seller_tags.join(' / ') || 'none'} | ${item.url}`).join('\n')}
+${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${item.seller_confidence} | tags=${item.seller_tags.join(' / ') || 'none'} | purchase=${item.purchase_link_flag ? (item.purchase_link_tags.join(' / ') || 'yes') : 'no'} | ${item.url}`).join('\n')}
 `;
     fs.writeFileSync(this.sellerReportPath, markdown, 'utf8');
   }
@@ -650,7 +700,7 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     if (recordStage) {
       this.recordOperation('overview', {
         ok: true,
-        detail: `questions=${rows.length}, seller_candidates=${this.readNotes().filter((note) => note.seller_flag).length}`,
+        detail: `questions=${rows.length}, seller_candidates=${this.readNotes().filter((note) => note.seller_flag).length}, purchase_links=${this.readNotes().filter((note) => note.purchase_link_flag).length}`,
         item_count: rows.length,
         duration_ms: Date.now() - startedAt,
       });

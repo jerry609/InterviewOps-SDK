@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { collectStats, detectSellerSignals, extractQuestions, inferTopics, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
+import { applySellerWhitelist, collectStats, detectPurchaseLinks, detectSellerSignals, extractQuestions, inferTopics, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
 import type { XhsNote } from './types.js';
 
 describe('heuristics', () => {
@@ -18,6 +18,30 @@ describe('heuristics', () => {
     });
     expect(signal.flag).toBe(true);
     expect(signal.tags).toContain('简历服务');
+  });
+
+  it('applies seller whitelist and detects purchase links', () => {
+    expect(applySellerWhitelist(
+      {
+        note_id: 'note-1',
+        author: '白名单作者',
+        title: '普通面经',
+        url: 'https://www.xiaohongshu.com/explore/abc',
+      },
+      { authors: ['白名单作者'] },
+    )).toEqual({
+      whitelisted: true,
+      reason: 'author:白名单作者',
+    });
+
+    const purchase = detectPurchaseLinks({
+      title: '课程笔记',
+      content: '购买链接在这里 https://e.tb.cn/demo 也可以看店铺链接',
+      comments: [],
+    });
+    expect(purchase.flag).toBe(true);
+    expect(purchase.links.some((item) => item.includes('tb.cn'))).toBe(true);
+    expect(purchase.tags).toContain('购买链接');
   });
 
   it('parses company, rounds and stats', () => {
@@ -56,6 +80,8 @@ describe('heuristics', () => {
       questionsFilled: 1,
       commentsEnriched: 1,
       sellerFlagged: 1,
+      sellerWhitelisted: 0,
+      purchaseLinkFlagged: 0,
     });
 
     expect(summarizeSellerAuthors(notes)).toEqual([

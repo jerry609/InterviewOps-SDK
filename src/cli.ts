@@ -12,6 +12,7 @@ function usage(): string {
 
 Usage:
   interviewops init [--workspace PATH] [--force]
+  interviewops template [--workspace PATH] [--force]
   interviewops sources
   interviewops harvest [--workspace PATH] [--prd PATH]
   interviewops hydrate [--workspace PATH] [--prd PATH] [--limit N]
@@ -37,6 +38,7 @@ Environment:
 
 Examples:
   interviewops sources
+  interviewops template
   interviewops harvest
   interviewops hydrate --limit 12
   interviewops comments --limit 8
@@ -118,6 +120,21 @@ function initWorkspace(parsed: ParsedCli): void {
   process.stdout.write(`initialized config: ${destination}\n`);
 }
 
+function copyTemplate(parsed: ParsedCli): void {
+  const workspace = path.resolve(String(parsed.options.workspace || process.cwd()));
+  const templateDir = path.resolve(workspace, 'templates');
+  const sourceDir = path.resolve(resolvePackageRoot(), 'templates');
+  const texDestination = path.resolve(templateDir, 'interview-note-template.tex');
+  const pdfDestination = path.resolve(templateDir, 'interview-note-template.pdf');
+  if ((!parsed.options.force) && (fs.existsSync(texDestination) || fs.existsSync(pdfDestination))) {
+    throw new Error(`template already exists in ${templateDir}; pass --force to overwrite`);
+  }
+  fs.mkdirSync(templateDir, { recursive: true });
+  fs.copyFileSync(path.resolve(sourceDir, 'interview-note-template.tex'), texDestination);
+  fs.copyFileSync(path.resolve(sourceDir, 'interview-note-template.pdf'), pdfDestination);
+  process.stdout.write(`template copied to: ${templateDir}\n`);
+}
+
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.command === 'help') {
@@ -137,6 +154,11 @@ async function main(): Promise<void> {
 
   if (parsed.command === 'init') {
     initWorkspace(parsed);
+    return;
+  }
+
+  if (parsed.command === 'template') {
+    copyTemplate(parsed);
     return;
   }
 

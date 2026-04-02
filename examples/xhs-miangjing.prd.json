@@ -8,6 +8,12 @@
     "智能体 面经",
     "小红书 NLP 面经"
   ],
+  "sellerWhitelist": {
+    "authors": [],
+    "note_ids": [],
+    "title_keywords": [],
+    "urls": []
+  },
   "dataDir": "./interview_data",
   "reportDir": "./reports/xhs-miangjing",
   "stateFile": "./interview_data/xhs_miangjing_state.json",
