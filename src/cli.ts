@@ -19,6 +19,7 @@ Usage:
   interviewops normalize [--workspace PATH] [--prd PATH]
   interviewops questions [--workspace PATH] [--prd PATH]
   interviewops overview [--workspace PATH] [--prd PATH]
+  interviewops status [--workspace PATH] [--prd PATH]
   interviewops nightly [hours] [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops cycle [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops export [--workspace PATH] [--prd PATH]
@@ -42,6 +43,7 @@ Examples:
   interviewops normalize
   interviewops questions
   interviewops overview
+  interviewops status
   interviewops stats
   interviewops export
   interviewops cycle --auto-commit
@@ -147,6 +149,9 @@ async function main(): Promise<void> {
       break;
     case 'doctor':
       process.stdout.write(`${JSON.stringify(pipeline.doctor(), null, 2)}\n`);
+      break;
+    case 'status':
+      process.stdout.write(`${JSON.stringify(pipeline.status(), null, 2)}\n`);
       break;
     case 'harvest':
       pipeline.harvestIncremental();

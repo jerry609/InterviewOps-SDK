@@ -5,9 +5,9 @@ import { OpenCliRunner } from './adapters/opencli.js';
 import { createSourceAdapter } from './adapters/xiaohongshu.js';
 import type { InterviewSourceAdapter } from './adapters/types.js';
 import { collectStats, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
-import { ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
+import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
-import type { DoctorCheck, PipelineOptions, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
+import type { DoctorCheck, PipelineOperationRecord, PipelineOptions, PipelineStageName, PipelineStatus, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
 
 const DEFAULT_PRD: Required<XhsPrdConfig> = {
   source: 'xiaohongshu',
@@ -44,6 +44,8 @@ export class InterviewOpsPipeline {
   readonly sellerSummaryPath: string;
   readonly authorSellerSummaryPath: string;
   readonly sellerReportPath: string;
+  readonly runHistoryPath: string;
+  readonly statusPath: string;
 
   constructor(options: PipelineOptions) {
     this.workspace = path.resolve(options.workspace);
@@ -68,6 +70,8 @@ export class InterviewOpsPipeline {
     this.sellerSummaryPath = path.resolve(this.reportDir, 'seller_candidates.json');
     this.authorSellerSummaryPath = path.resolve(this.reportDir, 'author_seller_summary.json');
     this.sellerReportPath = path.resolve(this.reportDir, 'seller_summary.md');
+    this.runHistoryPath = path.resolve(this.reportDir, 'run_history.jsonl');
+    this.statusPath = path.resolve(this.reportDir, 'status.json');
 
     ensureDir(this.dataDir);
     ensureDir(this.reportDir);
@@ -95,6 +99,27 @@ export class InterviewOpsPipeline {
 
   stats(): XhsStats {
     return collectStats(this.readNotes());
+  }
+
+  status(): PipelineStatus {
+    const state = this.readState();
+    const operations = Object.values(state.operations || {})
+      .filter((item): item is PipelineOperationRecord => Boolean(item))
+      .sort((a, b) => b.last_run_at.localeCompare(a.last_run_at));
+    const queryRows = Object.values(state.queries || {});
+
+    return {
+      workspace: this.workspace,
+      source: this.adapter.sourceName,
+      config_path: this.prdPath,
+      updated_at: state.updated_at,
+      stats: this.stats(),
+      queries: {
+        total: queryRows.length,
+        with_errors: queryRows.filter((item) => Boolean(item.last_error)).length,
+      },
+      operations,
+    };
   }
 
   doctor(): DoctorCheck[] {
@@ -140,14 +165,19 @@ export class InterviewOpsPipeline {
   }
 
   harvestIncremental(): void {
+    const startedAt = Date.now();
     const seenAt = nowIsoUtc8();
     const notes = this.readNotes();
     const byId = new Map(notes.map((note) => [note.note_id, note]));
     const state = this.readState();
+    let totalRows = 0;
+    let added = 0;
+    let errors = 0;
 
     for (const query of this.config.queries) {
       try {
         const rows = this.adapter.search(query, this.config.maxSearchResultsPerQuery, this.config.perQueryTimeoutSeconds);
+        totalRows += rows.length;
         let newestPublishedAt: string | null = null;
 
         for (const row of rows) {
@@ -186,6 +216,7 @@ export class InterviewOpsPipeline {
             meta.queries = [...queries].sort();
           } else {
             byId.set(noteId, record);
+            added += 1;
           }
 
           if (!newestPublishedAt || String(record.published_at || '') > newestPublishedAt) {
@@ -199,6 +230,7 @@ export class InterviewOpsPipeline {
           last_result_count: rows.length,
         };
       } catch (error) {
+        errors += 1;
         state.queries[query] = {
           last_run_at: seenAt,
           newest_published_at: null,
@@ -211,9 +243,16 @@ export class InterviewOpsPipeline {
     state.updated_at = seenAt;
     this.writeNotes([...byId.values()].sort((a, b) => `${b.published_at || ''}${b.note_id}`.localeCompare(`${a.published_at || ''}${a.note_id}`)));
     this.writeState(state);
+    this.recordOperation('harvest', {
+      ok: errors === 0,
+      detail: `queries=${this.config.queries.length}, rows=${totalRows}, added=${added}, errors=${errors}`,
+      item_count: totalRows,
+      duration_ms: Date.now() - startedAt,
+    });
   }
 
   hydrateDetails(maxNotes = this.config.detailBatch): void {
+    const startedAt = Date.now();
     const notes = this.readNotes();
     let hydrated = 0;
     const seenAt = nowIsoUtc8();
@@ -241,9 +280,16 @@ export class InterviewOpsPipeline {
     state.updated_at = seenAt;
     state.detail_hydration = { last_run_at: seenAt, hydrated_notes: hydrated };
     this.writeState(state);
+    this.recordOperation('hydrate', {
+      ok: true,
+      detail: `hydrated=${hydrated}, limit=${maxNotes}`,
+      item_count: hydrated,
+      duration_ms: Date.now() - startedAt,
+    });
   }
 
   enrichComments(maxNotes = this.config.commentBatch): void {
+    const startedAt = Date.now();
     const notes = this.readNotes();
     const seenAt = nowIsoUtc8();
     let enriched = 0;
@@ -274,9 +320,16 @@ export class InterviewOpsPipeline {
     state.updated_at = seenAt;
     state.comment_enrichment = { last_run_at: seenAt, enriched_notes: enriched };
     this.writeState(state);
+    this.recordOperation('comments', {
+      ok: true,
+      detail: `enriched=${enriched}, limit=${maxNotes}`,
+      item_count: enriched,
+      duration_ms: Date.now() - startedAt,
+    });
   }
 
-  normalizeQuestionsAndSellerFlags(): void {
+  normalizeQuestionsAndSellerFlags(recordStage = true): void {
+    const startedAt = Date.now();
     const notes = this.readNotes();
     for (const note of notes) {
       const merged = new Set<string>();
@@ -295,6 +348,14 @@ export class InterviewOpsPipeline {
       note.seller_confidence = seller.confidence;
     }
     this.writeNotes(notes);
+    if (recordStage) {
+      this.recordOperation('normalize', {
+        ok: true,
+        detail: `notes=${notes.length}, seller_flagged=${notes.filter((note) => note.seller_flag).length}`,
+        item_count: notes.length,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
   }
 
   exportQuestions(): XhsQuestionRow[] {
@@ -341,10 +402,19 @@ export class InterviewOpsPipeline {
     return rows;
   }
 
-  exportQuestionsBundle(): XhsQuestionRow[] {
-    this.normalizeQuestionsAndSellerFlags();
+  exportQuestionsBundle(recordStage = true): XhsQuestionRow[] {
+    const startedAt = Date.now();
+    this.normalizeQuestionsAndSellerFlags(false);
     const rows = this.exportQuestions();
     this.exportTopicReports(rows);
+    if (recordStage) {
+      this.recordOperation('questions', {
+        ok: true,
+        detail: `questions=${rows.length}`,
+        item_count: rows.length,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
     return rows;
   }
 
@@ -570,24 +640,41 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     fs.writeFileSync(this.sellerReportPath, markdown, 'utf8');
   }
 
-  exportOverviewBundle(): void {
-    this.normalizeQuestionsAndSellerFlags();
+  exportOverviewBundle(recordStage = true): void {
+    const startedAt = Date.now();
+    this.normalizeQuestionsAndSellerFlags(false);
     const rows = this.exportQuestions();
     this.exportTopicReports(rows);
     this.exportOverview(rows);
     this.exportSellerReports();
+    if (recordStage) {
+      this.recordOperation('overview', {
+        ok: true,
+        detail: `questions=${rows.length}, seller_candidates=${this.readNotes().filter((note) => note.seller_flag).length}`,
+        item_count: rows.length,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
   }
 
   exportAll(): XhsQuestionRow[] {
-    this.normalizeQuestionsAndSellerFlags();
+    const startedAt = Date.now();
+    this.normalizeQuestionsAndSellerFlags(false);
     const rows = this.exportQuestions();
     this.exportTopicReports(rows);
     this.exportOverview(rows);
     this.exportSellerReports();
+    this.recordOperation('export', {
+      ok: true,
+      detail: `questions=${rows.length}`,
+      item_count: rows.length,
+      duration_ms: Date.now() - startedAt,
+    });
     return rows;
   }
 
-  validate(): void {
+  validate(recordStage = true): void {
+    const startedAt = Date.now();
     const notes = this.readNotes();
     const noteIds = new Set<string>();
     for (const note of notes) {
@@ -609,9 +696,18 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     if (typeof state.version !== 'number' || typeof state.updated_at !== 'string' || typeof state.queries !== 'object') {
       throw new Error('invalid state file');
     }
+    if (recordStage) {
+      this.recordOperation('validate', {
+        ok: true,
+        detail: `notes=${notes.length}`,
+        item_count: notes.length,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
   }
 
   runCycle(cycle: number): void {
+    const startedAt = Date.now();
     this.log(`cycle ${cycle} starting`);
     this.log(`before stats: ${JSON.stringify(this.stats())}`);
     if (cycle === 1 || cycle % this.config.harvestEvery === 0) {
@@ -620,12 +716,19 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     this.hydrateDetails();
     this.enrichComments();
     this.exportAll();
-    this.validate();
+    this.validate(false);
     this.log(`after stats: ${JSON.stringify(this.stats())}`);
+    this.recordOperation('cycle', {
+      ok: true,
+      detail: `cycle=${cycle}`,
+      item_count: cycle,
+      duration_ms: Date.now() - startedAt,
+    });
     this.commitIfChanged();
   }
 
   runNightly(hours: number): void {
+    const startedAt = Date.now();
     const deadline = Date.now() + hours * 3600_000;
     let cycle = 0;
     this.log(`starting overnight run for ${hours}h`);
@@ -640,6 +743,12 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1000);
     }
     this.log('overnight run finished');
+    this.recordOperation('nightly', {
+      ok: true,
+      detail: `hours=${hours}, cycles=${cycle}`,
+      item_count: cycle,
+      duration_ms: Date.now() - startedAt,
+    });
   }
 
   commitIfChanged(): void {
@@ -665,5 +774,26 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     ensureDir(path.dirname(this.progressLogPath));
     fs.appendFileSync(this.progressLogPath, line, 'utf8');
     process.stdout.write(line);
+  }
+
+  private recordOperation(
+    stage: PipelineStageName,
+    input: Omit<PipelineOperationRecord, 'stage' | 'last_run_at' | 'stats'>,
+  ): void {
+    const state = this.readState();
+    const record: PipelineOperationRecord = {
+      stage,
+      last_run_at: nowIsoUtc8(),
+      stats: this.stats(),
+      ...input,
+    };
+    state.operations = {
+      ...(state.operations || {}),
+      [stage]: record,
+    };
+    state.updated_at = record.last_run_at;
+    this.writeState(state);
+    appendJsonLine(this.runHistoryPath, record);
+    writeJsonFile(this.statusPath, this.status());
   }
 }

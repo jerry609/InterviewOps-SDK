@@ -66,6 +66,7 @@ npm run dev -- comments --limit 8
 npm run dev -- normalize
 npm run dev -- questions
 npm run dev -- overview
+npm run dev -- status
 npm run dev -- doctor
 npm run dev -- export
 npm run dev -- seller-summary
@@ -90,6 +91,7 @@ npm run dev -- comments --limit 8
 npm run dev -- normalize
 npm run dev -- questions
 npm run dev -- overview
+npm run dev -- status
 npm run dev -- doctor
 npm run dev -- stats
 npm run dev -- export
@@ -108,6 +110,7 @@ Command notes:
 - `normalize`: refreshes question extraction and seller flags only
 - `questions`: rebuilds `xhs_questions*.json` only
 - `overview`: rebuilds overview and seller reports only
+- `status`: shows current stats plus last recorded stage runs
 - `doctor`: verifies `node`, `opencli`, `omx`, config path, data dir, and report dir
 - `export`: rebuilds question/topic/overview/seller outputs from existing note data
 - `seller-summary`: refreshes seller-tagged reports from current note data
@@ -164,6 +167,8 @@ interview_data/
   company_round_summary.json
 reports/xhs-miangjing/
   index.html
+  status.json
+  run_history.jsonl
   xhs_questions_nlp.html
   xhs_questions_backend.html
   xhs_questions_algo.html

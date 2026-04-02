@@ -35,10 +35,33 @@ export type QueryState = {
   last_error?: string;
 };
 
+export type PipelineStageName =
+  | 'harvest'
+  | 'hydrate'
+  | 'comments'
+  | 'normalize'
+  | 'questions'
+  | 'overview'
+  | 'export'
+  | 'validate'
+  | 'cycle'
+  | 'nightly';
+
+export type PipelineOperationRecord = {
+  stage: PipelineStageName;
+  last_run_at: string;
+  ok: boolean;
+  detail: string;
+  item_count?: number;
+  duration_ms?: number;
+  stats?: XhsStats;
+};
+
 export type XhsState = {
   version: number;
   updated_at: string;
   queries: Record<string, QueryState>;
+  operations?: Partial<Record<PipelineStageName, PipelineOperationRecord>>;
   detail_hydration?: Record<string, unknown>;
   comment_enrichment?: Record<string, unknown>;
 };
@@ -113,4 +136,17 @@ export type DoctorCheck = {
   name: string;
   ok: boolean;
   detail: string;
+};
+
+export type PipelineStatus = {
+  workspace: string;
+  source: string;
+  config_path: string;
+  updated_at: string;
+  stats: XhsStats;
+  queries: {
+    total: number;
+    with_errors: number;
+  };
+  operations: PipelineOperationRecord[];
 };
