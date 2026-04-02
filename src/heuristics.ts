@@ -1,4 +1,4 @@
-import type { SellerSignal, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
+import type { SellerAuthorSummary, SellerSignal, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
 
 const COMPANY_NAMES = [
   '腾讯', '字节', '美团', '阿里', '阿里云', '通义', '蚂蚁', '京东', '百度', '快手',
@@ -170,4 +170,35 @@ export function collectStats(notes: XhsNote[]): XhsStats {
 
 export function questionRowKey(row: XhsQuestionRow): string {
   return `${row.note_id}::${row.question}`;
+}
+
+export function summarizeSellerAuthors(notes: XhsNote[]): SellerAuthorSummary[] {
+  const byAuthor = new Map<string, SellerAuthorSummary>();
+
+  for (const note of notes) {
+    const author = String(note.author || '').trim() || '未知作者';
+    const current = byAuthor.get(author) || {
+      author,
+      note_count: 0,
+      seller_note_count: 0,
+      seller_tags: [],
+      max_confidence: 0,
+      note_ids: [],
+      titles: [],
+    };
+
+    current.note_count += 1;
+    current.note_ids.push(note.note_id);
+    current.titles.push(note.title);
+    if (note.seller_flag) {
+      current.seller_note_count += 1;
+      current.max_confidence = Math.max(current.max_confidence, Number(note.seller_confidence || 0));
+      current.seller_tags = [...new Set([...current.seller_tags, ...(note.seller_tags || [])])];
+    }
+    byAuthor.set(author, current);
+  }
+
+  return [...byAuthor.values()]
+    .filter((item) => item.seller_note_count > 0)
+    .sort((a, b) => b.seller_note_count - a.seller_note_count || b.max_confidence - a.max_confidence || a.author.localeCompare(b.author));
 }

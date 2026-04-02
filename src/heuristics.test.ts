@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { collectStats, detectSellerSignals, extractQuestions, inferTopics, parseCompany, parseRounds } from './heuristics.js';
+import { collectStats, detectSellerSignals, extractQuestions, inferTopics, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
 import type { XhsNote } from './types.js';
 
 describe('heuristics', () => {
@@ -57,5 +57,17 @@ describe('heuristics', () => {
       commentsEnriched: 1,
       sellerFlagged: 1,
     });
+
+    expect(summarizeSellerAuthors(notes)).toEqual([
+      {
+        author: '未知作者',
+        note_count: 2,
+        seller_note_count: 1,
+        seller_tags: [],
+        max_confidence: 0,
+        note_ids: ['1', '2'],
+        titles: ['t1', 't2'],
+      },
+    ]);
   });
 });

@@ -74,6 +74,16 @@ export type SellerSignal = {
   confidence: number;
 };
 
+export type SellerAuthorSummary = {
+  author: string;
+  note_count: number;
+  seller_note_count: number;
+  seller_tags: string[];
+  max_confidence: number;
+  note_ids: string[];
+  titles: string[];
+};
+
 export type XhsPrdConfig = {
   queries: string[];
   dataDir?: string;
@@ -96,4 +106,10 @@ export type PipelineOptions = {
   prdPath: string;
   autoCommit: boolean;
   progressLogPath: string;
+};
+
+export type DoctorCheck = {
+  name: string;
+  ok: boolean;
+  detail: string;
 };

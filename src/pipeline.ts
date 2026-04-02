@@ -2,10 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { OpenCliRunner } from './adapters/opencli.js';
-import { collectStats, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey } from './heuristics.js';
+import { collectStats, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
-import type { PipelineOptions, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
+import type { DoctorCheck, PipelineOptions, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
 
 const DEFAULT_PRD: Required<XhsPrdConfig> = {
   queries: [],
@@ -38,6 +38,8 @@ export class InterviewOpsPipeline {
   readonly questionsPath: string;
   readonly summaryPath: string;
   readonly sellerSummaryPath: string;
+  readonly authorSellerSummaryPath: string;
+  readonly sellerReportPath: string;
 
   constructor(options: PipelineOptions) {
     this.workspace = path.resolve(options.workspace);
@@ -59,6 +61,8 @@ export class InterviewOpsPipeline {
     this.questionsPath = path.resolve(this.dataDir, 'xhs_questions.json');
     this.summaryPath = path.resolve(this.dataDir, 'company_round_summary.json');
     this.sellerSummaryPath = path.resolve(this.reportDir, 'seller_candidates.json');
+    this.authorSellerSummaryPath = path.resolve(this.reportDir, 'author_seller_summary.json');
+    this.sellerReportPath = path.resolve(this.reportDir, 'seller_summary.md');
 
     ensureDir(this.dataDir);
     ensureDir(this.reportDir);
@@ -86,6 +90,42 @@ export class InterviewOpsPipeline {
 
   stats(): XhsStats {
     return collectStats(this.readNotes());
+  }
+
+  doctor(): DoctorCheck[] {
+    const checks: DoctorCheck[] = [];
+    const binaries = [
+      { name: 'node', args: ['--version'] },
+      { name: process.env.INTERVIEWOPS_OPENCLI_BINARY || 'opencli', args: ['--help'] },
+      { name: process.env.INTERVIEWOPS_OMX_BINARY || 'omx', args: ['doctor'] },
+    ];
+
+    for (const item of binaries) {
+      const result = runProcess(item.name, item.args, { cwd: this.workspace });
+      checks.push({
+        name: `binary:${item.name}`,
+        ok: result.status === 0,
+        detail: result.status === 0 ? 'ok' : (result.stderr.trim() || `exit=${result.status}`),
+      });
+    }
+
+    checks.push({
+      name: 'config',
+      ok: fs.existsSync(this.prdPath),
+      detail: this.prdPath,
+    });
+    checks.push({
+      name: 'dataDir',
+      ok: fs.existsSync(this.dataDir),
+      detail: this.dataDir,
+    });
+    checks.push({
+      name: 'reportDir',
+      ok: fs.existsSync(this.reportDir),
+      detail: this.reportDir,
+    });
+
+    return checks;
   }
 
   harvestIncremental(): void {
@@ -476,6 +516,51 @@ export class InterviewOpsPipeline {
     fs.writeFileSync(path.resolve(this.reportDir, 'index.html'), html, 'utf8');
   }
 
+  exportSellerReports(): void {
+    const notes = this.readNotes();
+    const sellerNotes = notes
+      .filter((note) => note.seller_flag)
+      .map((note) => ({
+        note_id: note.note_id,
+        title: note.title,
+        author: note.author || '未知作者',
+        query: note.query,
+        seller_tags: note.seller_tags || [],
+        seller_confidence: Number(note.seller_confidence || 0),
+        published_at: note.published_at || '',
+        url: note.url,
+      }))
+      .sort((a, b) => b.seller_confidence - a.seller_confidence || a.author.localeCompare(b.author));
+    const authorSummary = summarizeSellerAuthors(notes);
+
+    writeJsonFile(this.sellerSummaryPath, sellerNotes);
+    writeJsonFile(this.authorSellerSummaryPath, authorSummary);
+
+    const markdown = `# Seller Summary
+
+候选卖课/导流笔记数：${sellerNotes.length}
+候选作者数：${authorSummary.length}
+
+## 作者汇总
+
+${authorSummary.map((item) => `- ${item.author}: note_count=${item.note_count}, seller_note_count=${item.seller_note_count}, tags=${item.seller_tags.join(' / ') || 'none'}, max_confidence=${item.max_confidence}`).join('\n')}
+
+## 笔记候选
+
+${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${item.seller_confidence} | tags=${item.seller_tags.join(' / ') || 'none'} | ${item.url}`).join('\n')}
+`;
+    fs.writeFileSync(this.sellerReportPath, markdown, 'utf8');
+  }
+
+  exportAll(): XhsQuestionRow[] {
+    this.normalizeQuestionsAndSellerFlags();
+    const rows = this.exportQuestions();
+    this.exportTopicReports(rows);
+    this.exportOverview(rows);
+    this.exportSellerReports();
+    return rows;
+  }
+
   validate(): void {
     const notes = this.readNotes();
     const noteIds = new Set<string>();
@@ -508,10 +593,7 @@ export class InterviewOpsPipeline {
     }
     this.hydrateDetails();
     this.enrichComments();
-    this.normalizeQuestionsAndSellerFlags();
-    const rows = this.exportQuestions();
-    this.exportTopicReports(rows);
-    this.exportOverview(rows);
+    this.exportAll();
     this.validate();
     this.log(`after stats: ${JSON.stringify(this.stats())}`);
     this.commitIfChanged();

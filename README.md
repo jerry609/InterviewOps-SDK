@@ -59,7 +59,13 @@ Main commands:
 
 ```bash
 npm run dev -- init
+npm run dev -- doctor
+npm run dev -- export
+npm run dev -- seller-summary
 node dist/cli.js stats
+node dist/cli.js doctor
+node dist/cli.js export
+node dist/cli.js seller-summary
 node dist/cli.js cycle
 node dist/cli.js nightly 8
 node dist/cli.js validate
@@ -70,11 +76,20 @@ During development:
 
 ```bash
 npm run dev -- init
+npm run dev -- doctor
 npm run dev -- stats
+npm run dev -- export
+npm run dev -- seller-summary
 npm run dev -- cycle
 npm run dev -- nightly 8
 npm run dev -- omx-safe doctor
 ```
+
+Command notes:
+
+- `doctor`: verifies `node`, `opencli`, `omx`, config path, data dir, and report dir
+- `export`: rebuilds question/topic/overview/seller outputs from existing note data
+- `seller-summary`: refreshes seller-tagged reports from current note data
 
 ## OpenCLI Integration
 
@@ -131,6 +146,8 @@ reports/xhs-miangjing/
   xhs_questions_backend.html
   xhs_questions_algo.html
   seller_candidates.json
+  author_seller_summary.json
+  seller_summary.md
   progress.log
 ```
 
@@ -188,6 +205,9 @@ These fields are propagated into:
 - `xhs_questions.json`
 - topic exports
 - overview HTML
+- `seller_candidates.json`
+- `author_seller_summary.json`
+- `seller_summary.md`
 
 ## Auto Commit
 

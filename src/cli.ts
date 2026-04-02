@@ -14,8 +14,11 @@ Usage:
   interviewops init [--workspace PATH] [--force]
   interviewops nightly [hours] [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops cycle [--workspace PATH] [--prd PATH] [--auto-commit]
+  interviewops export [--workspace PATH] [--prd PATH]
+  interviewops seller-summary [--workspace PATH] [--prd PATH]
   interviewops stats [--workspace PATH] [--prd PATH]
   interviewops validate [--workspace PATH] [--prd PATH]
+  interviewops doctor [--workspace PATH] [--prd PATH]
   interviewops omx-safe <args...>
 
 Environment:
@@ -25,8 +28,10 @@ Environment:
 
 Examples:
   interviewops stats
+  interviewops export
   interviewops cycle --auto-commit
   interviewops nightly 8 --workspace /data/interviewops
+  interviewops doctor --workspace /data/interviewops
   interviewops omx-safe doctor
 `;
 }
@@ -119,9 +124,22 @@ async function main(): Promise<void> {
     case 'stats':
       process.stdout.write(`${JSON.stringify(pipeline.stats(), null, 2)}\n`);
       break;
+    case 'doctor':
+      process.stdout.write(`${JSON.stringify(pipeline.doctor(), null, 2)}\n`);
+      break;
     case 'validate':
       pipeline.validate();
       process.stdout.write('validation ok\n');
+      break;
+    case 'export': {
+      const rows = pipeline.exportAll();
+      process.stdout.write(`${JSON.stringify({ questions: rows.length }, null, 2)}\n`);
+      break;
+    }
+    case 'seller-summary':
+      pipeline.normalizeQuestionsAndSellerFlags();
+      pipeline.exportSellerReports();
+      process.stdout.write(`seller summary exported to reports/xhs-miangjing\n`);
       break;
     case 'cycle':
       pipeline.runCycle(1);
