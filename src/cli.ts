@@ -13,6 +13,12 @@ function usage(): string {
 Usage:
   interviewops init [--workspace PATH] [--force]
   interviewops sources
+  interviewops harvest [--workspace PATH] [--prd PATH]
+  interviewops hydrate [--workspace PATH] [--prd PATH] [--limit N]
+  interviewops comments [--workspace PATH] [--prd PATH] [--limit N]
+  interviewops normalize [--workspace PATH] [--prd PATH]
+  interviewops questions [--workspace PATH] [--prd PATH]
+  interviewops overview [--workspace PATH] [--prd PATH]
   interviewops nightly [hours] [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops cycle [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops export [--workspace PATH] [--prd PATH]
@@ -30,6 +36,12 @@ Environment:
 
 Examples:
   interviewops sources
+  interviewops harvest
+  interviewops hydrate --limit 12
+  interviewops comments --limit 8
+  interviewops normalize
+  interviewops questions
+  interviewops overview
   interviewops stats
   interviewops export
   interviewops cycle --auto-commit
@@ -135,6 +147,31 @@ async function main(): Promise<void> {
       break;
     case 'doctor':
       process.stdout.write(`${JSON.stringify(pipeline.doctor(), null, 2)}\n`);
+      break;
+    case 'harvest':
+      pipeline.harvestIncremental();
+      process.stdout.write('harvest ok\n');
+      break;
+    case 'hydrate':
+      pipeline.hydrateDetails(parsed.options.limit ? Number(parsed.options.limit) : undefined);
+      process.stdout.write('hydrate ok\n');
+      break;
+    case 'comments':
+      pipeline.enrichComments(parsed.options.limit ? Number(parsed.options.limit) : undefined);
+      process.stdout.write('comments ok\n');
+      break;
+    case 'normalize':
+      pipeline.normalizeQuestionsAndSellerFlags();
+      process.stdout.write('normalize ok\n');
+      break;
+    case 'questions': {
+      const rows = pipeline.exportQuestionsBundle();
+      process.stdout.write(`${JSON.stringify({ questions: rows.length }, null, 2)}\n`);
+      break;
+    }
+    case 'overview':
+      pipeline.exportOverviewBundle();
+      process.stdout.write('overview ok\n');
       break;
     case 'validate':
       pipeline.validate();

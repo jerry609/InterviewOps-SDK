@@ -60,6 +60,12 @@ Main commands:
 ```bash
 npm run dev -- init
 npm run dev -- sources
+npm run dev -- harvest
+npm run dev -- hydrate --limit 12
+npm run dev -- comments --limit 8
+npm run dev -- normalize
+npm run dev -- questions
+npm run dev -- overview
 npm run dev -- doctor
 npm run dev -- export
 npm run dev -- seller-summary
@@ -78,6 +84,12 @@ During development:
 
 ```bash
 npm run dev -- init
+npm run dev -- harvest
+npm run dev -- hydrate --limit 12
+npm run dev -- comments --limit 8
+npm run dev -- normalize
+npm run dev -- questions
+npm run dev -- overview
 npm run dev -- doctor
 npm run dev -- stats
 npm run dev -- export
@@ -90,6 +102,12 @@ npm run dev -- omx-safe doctor
 Command notes:
 
 - `sources`: lists currently built-in source adapters
+- `harvest`: runs incremental search only
+- `hydrate`: fills note detail content only
+- `comments`: enriches comments only
+- `normalize`: refreshes question extraction and seller flags only
+- `questions`: rebuilds `xhs_questions*.json` only
+- `overview`: rebuilds overview and seller reports only
 - `doctor`: verifies `node`, `opencli`, `omx`, config path, data dir, and report dir
 - `export`: rebuilds question/topic/overview/seller outputs from existing note data
 - `seller-summary`: refreshes seller-tagged reports from current note data

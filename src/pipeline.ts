@@ -341,6 +341,13 @@ export class InterviewOpsPipeline {
     return rows;
   }
 
+  exportQuestionsBundle(): XhsQuestionRow[] {
+    this.normalizeQuestionsAndSellerFlags();
+    const rows = this.exportQuestions();
+    this.exportTopicReports(rows);
+    return rows;
+  }
+
   exportTopicReports(rows: XhsQuestionRow[]): void {
     const topics = ['nlp', 'backend', 'algo'];
     for (const topic of topics) {
@@ -561,6 +568,14 @@ ${authorSummary.map((item) => `- ${item.author}: note_count=${item.note_count}, 
 ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${item.seller_confidence} | tags=${item.seller_tags.join(' / ') || 'none'} | ${item.url}`).join('\n')}
 `;
     fs.writeFileSync(this.sellerReportPath, markdown, 'utf8');
+  }
+
+  exportOverviewBundle(): void {
+    this.normalizeQuestionsAndSellerFlags();
+    const rows = this.exportQuestions();
+    this.exportTopicReports(rows);
+    this.exportOverview(rows);
+    this.exportSellerReports();
   }
 
   exportAll(): XhsQuestionRow[] {

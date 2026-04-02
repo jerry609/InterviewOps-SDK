@@ -17,7 +17,7 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src/heuristics.test.ts src/orchestration/omx.test.ts"
+    "test": "vitest run src/heuristics.test.ts src/orchestration/omx.test.ts src/adapters/xiaohongshu.test.ts"
   },
   "keywords": [
     "sdk",
