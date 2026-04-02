@@ -59,9 +59,11 @@ Main commands:
 
 ```bash
 npm run dev -- init
+npm run dev -- sources
 npm run dev -- doctor
 npm run dev -- export
 npm run dev -- seller-summary
+npm run dev -- ralph "analyze the current dataset"
 node dist/cli.js stats
 node dist/cli.js doctor
 node dist/cli.js export
@@ -87,9 +89,11 @@ npm run dev -- omx-safe doctor
 
 Command notes:
 
+- `sources`: lists currently built-in source adapters
 - `doctor`: verifies `node`, `opencli`, `omx`, config path, data dir, and report dir
 - `export`: rebuilds question/topic/overview/seller outputs from existing note data
 - `seller-summary`: refreshes seller-tagged reports from current note data
+- `ralph`: shortcut for `omx-safe exec --full-auto '$ralph "..."'`
 
 ## OpenCLI Integration
 
@@ -190,6 +194,14 @@ You can override it explicitly:
 npm run dev -- cycle --prd ./examples/xhs-miangjing.prd.json
 ```
 
+The PRD now includes:
+
+- `source`
+- query list
+- data/report/state paths
+- search/detail/comment batch and timeout policy
+- harvest/sleep cadence
+
 ## Seller / Lead-Gen Marking
 
 The SDK does **not** drop seller-team notes.  
@@ -208,6 +220,23 @@ These fields are propagated into:
 - `seller_candidates.json`
 - `author_seller_summary.json`
 - `seller_summary.md`
+
+## Source Adapters
+
+Current built-in adapters:
+
+- `xiaohongshu`
+
+The pipeline now resolves a source adapter from config:
+
+```json
+{
+  "source": "xiaohongshu"
+}
+```
+
+That keeps the CLI stable while making it possible to add more sources later
+without rewriting pipeline orchestration.
 
 ## Auto Commit
 

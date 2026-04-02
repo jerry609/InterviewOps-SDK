@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .DS_Store
-.omx/state/
+.omx/
 interview_data/*.json
 reports/xhs-miangjing/*.html
 reports/xhs-miangjing/*.json

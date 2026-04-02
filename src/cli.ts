@@ -12,6 +12,7 @@ function usage(): string {
 
 Usage:
   interviewops init [--workspace PATH] [--force]
+  interviewops sources
   interviewops nightly [hours] [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops cycle [--workspace PATH] [--prd PATH] [--auto-commit]
   interviewops export [--workspace PATH] [--prd PATH]
@@ -19,6 +20,7 @@ Usage:
   interviewops stats [--workspace PATH] [--prd PATH]
   interviewops validate [--workspace PATH] [--prd PATH]
   interviewops doctor [--workspace PATH] [--prd PATH]
+  interviewops ralph <task> [--workspace PATH] [--full-auto]
   interviewops omx-safe <args...>
 
 Environment:
@@ -27,11 +29,13 @@ Environment:
   INTERVIEWOPS_OMX_BINARY           Override omx binary, default: omx
 
 Examples:
+  interviewops sources
   interviewops stats
   interviewops export
   interviewops cycle --auto-commit
   interviewops nightly 8 --workspace /data/interviewops
   interviewops doctor --workspace /data/interviewops
+  interviewops ralph "analyze seller notes and produce a report"
   interviewops omx-safe doctor
 `;
 }
@@ -112,6 +116,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (parsed.command === 'sources') {
+    process.stdout.write(`${JSON.stringify(['xiaohongshu'], null, 2)}\n`);
+    return;
+  }
+
   if (parsed.command === 'init') {
     initWorkspace(parsed);
     return;
@@ -150,6 +159,17 @@ async function main(): Promise<void> {
         throw new Error('nightly hours must be a positive number');
       }
       pipeline.runNightly(hours);
+      break;
+    }
+    case 'ralph': {
+      const task = parsed.positional.join(' ').trim();
+      if (!task) {
+        throw new Error('ralph requires a task string');
+      }
+      const fullAuto = parsed.options['full-auto'] !== false;
+      const command = [`$ralph "${task.replaceAll('"', '\\"')}"`];
+      const args = fullAuto ? ['exec', '--full-auto', ...command] : ['exec', ...command];
+      process.exitCode = runStableOmx(args, options.workspace);
       break;
     }
     default:

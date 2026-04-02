@@ -85,6 +85,7 @@ export type SellerAuthorSummary = {
 };
 
 export type XhsPrdConfig = {
+  source?: string;
   queries: string[];
   dataDir?: string;
   reportDir?: string;

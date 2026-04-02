@@ -2,12 +2,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { OpenCliRunner } from './adapters/opencli.js';
+import { createSourceAdapter } from './adapters/xiaohongshu.js';
+import type { InterviewSourceAdapter } from './adapters/types.js';
 import { collectStats, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
 import type { DoctorCheck, PipelineOptions, XhsComment, XhsNote, XhsPrdConfig, XhsQuestionRow, XhsState, XhsStats } from './types.js';
 
 const DEFAULT_PRD: Required<XhsPrdConfig> = {
+  source: 'xiaohongshu',
   queries: [],
   dataDir: './interview_data',
   reportDir: './reports/xhs-miangjing',
@@ -31,6 +34,7 @@ export class InterviewOpsPipeline {
   readonly progressLogPath: string;
   readonly config: Required<XhsPrdConfig>;
   readonly runner: OpenCliRunner;
+  readonly adapter: InterviewSourceAdapter;
   readonly dataDir: string;
   readonly reportDir: string;
   readonly notesPath: string;
@@ -54,6 +58,7 @@ export class InterviewOpsPipeline {
     };
 
     this.runner = new OpenCliRunner(this.workspace);
+    this.adapter = createSourceAdapter(this.config.source, this.runner);
     this.dataDir = path.resolve(this.workspace, this.config.dataDir);
     this.reportDir = path.resolve(this.workspace, this.config.reportDir);
     this.notesPath = path.resolve(this.dataDir, 'xhs_notes.json');
@@ -110,6 +115,12 @@ export class InterviewOpsPipeline {
     }
 
     checks.push({
+      name: 'source',
+      ok: Boolean(this.adapter.sourceName),
+      detail: this.adapter.sourceName,
+    });
+
+    checks.push({
       name: 'config',
       ok: fs.existsSync(this.prdPath),
       detail: this.prdPath,
@@ -136,7 +147,7 @@ export class InterviewOpsPipeline {
 
     for (const query of this.config.queries) {
       try {
-        const rows = this.runner.search(query, this.config.maxSearchResultsPerQuery, this.config.perQueryTimeoutSeconds);
+        const rows = this.adapter.search(query, this.config.maxSearchResultsPerQuery, this.config.perQueryTimeoutSeconds);
         let newestPublishedAt: string | null = null;
 
         for (const row of rows) {
@@ -211,7 +222,7 @@ export class InterviewOpsPipeline {
       if (hydrated >= maxNotes) break;
       if (String(note.content || '').trim()) continue;
 
-      const rows = this.runner.noteDetail(note.url || note.note_id, this.config.detailTimeoutSeconds);
+      const rows = this.adapter.detail(note.url || note.note_id, this.config.detailTimeoutSeconds);
       const row = rows[0] || {};
       const content = String(row.content || '').trim();
       note.url = String(row.url || note.url || '').trim() || note.url;
@@ -244,7 +255,7 @@ export class InterviewOpsPipeline {
       const target = note.note_id || note.url;
       if (!target) continue;
 
-      const rows = this.runner.comments(target, this.config.commentLimit, this.config.commentTimeoutSeconds);
+      const rows = this.adapter.comments(target, this.config.commentLimit, this.config.commentTimeoutSeconds);
       const comments: XhsComment[] = rows.map((row) => ({
         author: String(row.author || '').trim() || null,
         content: String(row.text || row.content || '').trim() || null,
