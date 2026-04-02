@@ -9,3 +9,9 @@ reports/xhs-miangjing/*.md
 reports/xhs-miangjing/*.log
 !interview_data/.gitkeep
 !reports/xhs-miangjing/.gitkeep
+workspaces/**/interview_data/*.json
+workspaces/**/reports/**/*.json
+workspaces/**/reports/**/*.md
+workspaces/**/reports/**/*.html
+workspaces/**/reports/**/*.log
+workspaces/**/.omx/

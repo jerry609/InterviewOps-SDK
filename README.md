@@ -72,6 +72,7 @@ npm run dev -- doctor
 npm run dev -- export
 npm run dev -- seller-summary
 npm run dev -- ralph "analyze the current dataset"
+npm run dev -- ralph-loop 6 --workspace ./workspaces/xhs-agent-algo-feb2026
 node dist/cli.js stats
 node dist/cli.js doctor
 node dist/cli.js export
@@ -117,6 +118,7 @@ Command notes:
 - `export`: rebuilds question/topic/overview/seller outputs from existing note data
 - `seller-summary`: refreshes seller-tagged reports from current note data
 - `ralph`: shortcut for `omx-safe exec --full-auto '$ralph "..."'`
+- `ralph-loop`: repeatedly runs bounded Ralph collection cycles for a dedicated workspace
 
 ## OpenCLI Integration
 
@@ -310,6 +312,33 @@ The pipeline now resolves a source adapter from config:
 
 That keeps the CLI stable while making it possible to add more sources later
 without rewriting pipeline orchestration.
+
+## Dedicated Agent / LLM Algorithm Workspace
+
+Bundled workspace:
+
+- [`workspaces/xhs-agent-algo-feb2026/interviewops.xhs.json`](./workspaces/xhs-agent-algo-feb2026/interviewops.xhs.json)
+- [`workspaces/xhs-agent-algo-feb2026/README.md`](./workspaces/xhs-agent-algo-feb2026/README.md)
+
+This workspace is scoped to:
+
+- Xiaohongshu
+- `2026-02-01` onward
+- internet major companies
+- `Agent / 智能体 / LLM / 大模型应用开发`
+- `算法岗 / NLP / 大模型算法`
+
+Run the dedicated Ralph loop:
+
+```bash
+npm run dev -- ralph-loop 6 --workspace ./workspaces/xhs-agent-algo-feb2026
+```
+
+Persisted outputs land in that workspace:
+
+- `interview_data/xhs_notes.json`
+- `interview_data/xhs_questions.json`
+- `reports/xhs-agent-algo-feb2026/`
 
 ## LaTeX Template
 

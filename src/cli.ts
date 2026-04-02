@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { runRalphLoop } from './orchestration/ralph-loop.js';
 import { runStableOmx } from './orchestration/omx.js';
 import { InterviewOpsPipeline } from './pipeline.js';
 import type { PipelineOptions } from './types.js';
@@ -29,6 +30,7 @@ Usage:
   interviewops validate [--workspace PATH] [--prd PATH]
   interviewops doctor [--workspace PATH] [--prd PATH]
   interviewops ralph <task> [--workspace PATH] [--full-auto]
+  interviewops ralph-loop [iterations] [--workspace PATH] [--prd PATH] [--sleep-seconds N] [--auto-commit]
   interviewops omx-safe <args...>
 
 Environment:
@@ -52,6 +54,7 @@ Examples:
   interviewops nightly 8 --workspace /data/interviewops
   interviewops doctor --workspace /data/interviewops
   interviewops ralph "analyze seller notes and produce a report"
+  interviewops ralph-loop 6 --workspace /path/to/workspace
   interviewops omx-safe doctor
 `;
 }
@@ -93,11 +96,22 @@ function buildOptions(parsed: ParsedCli): PipelineOptions {
   const localPrd = path.resolve(workspace, 'interviewops.xhs.json');
   const packagePrd = path.resolve(resolvePackageRoot(), 'examples/xhs-miangjing.prd.json');
   const prdPath = path.resolve(String(parsed.options.prd || (fs.existsSync(localPrd) ? localPrd : packagePrd)));
+  let progressDir = path.resolve(workspace, 'reports/xhs-miangjing');
+  if (fs.existsSync(prdPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(prdPath, 'utf8')) as { reportDir?: string };
+      if (raw.reportDir) {
+        progressDir = path.resolve(workspace, raw.reportDir);
+      }
+    } catch {
+      // Keep default progress dir when config parsing fails.
+    }
+  }
   return {
     workspace,
     prdPath,
     autoCommit: Boolean(parsed.options['auto-commit']),
-    progressLogPath: path.resolve(workspace, 'reports/xhs-miangjing/progress.log'),
+    progressLogPath: path.resolve(progressDir, 'progress.log'),
   };
 }
 
@@ -234,6 +248,22 @@ async function main(): Promise<void> {
       const command = [`$ralph "${task.replaceAll('"', '\\"')}"`];
       const args = fullAuto ? ['exec', '--full-auto', ...command] : ['exec', ...command];
       process.exitCode = runStableOmx(args, options.workspace);
+      break;
+    }
+    case 'ralph-loop': {
+      const iterations = parsed.positional[0] ? Number(parsed.positional[0]) : 3;
+      if (!Number.isFinite(iterations) || iterations <= 0) {
+        throw new Error('ralph-loop iterations must be a positive number');
+      }
+      const repoRoot = resolvePackageRoot();
+      process.exitCode = runRalphLoop({
+        repoRoot,
+        targetWorkspace: options.workspace,
+        prdPath: options.prdPath,
+        iterations,
+        sleepSeconds: parsed.options['sleep-seconds'] ? Number(parsed.options['sleep-seconds']) : 20,
+        autoCommit: Boolean(parsed.options['auto-commit']),
+      });
       break;
     }
     default:
