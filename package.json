@@ -1,0 +1,37 @@
+{
+  "name": "interviewops-sdk",
+  "version": "0.1.0",
+  "description": "SDK and CLI for orchestrating OpenCLI + OMX interview collection pipelines.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "interviewops": "dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/heuristics.test.ts src/orchestration/omx.test.ts"
+  },
+  "keywords": [
+    "sdk",
+    "opencli",
+    "omx",
+    "codex",
+    "xiaohongshu",
+    "interview"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.1"
+  }
+}

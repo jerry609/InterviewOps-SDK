@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "XhsNote",
+  "type": "object",
+  "required": [
+    "note_id",
+    "url",
+    "title",
+    "query",
+    "first_seen_at",
+    "last_seen_at",
+    "crawl_source"
+  ],
+  "properties": {
+    "note_id": { "type": "string" },
+    "url": { "type": "string" },
+    "title": { "type": ["string", "null"] },
+    "query": { "type": "string" },
+    "first_seen_at": { "type": "string" },
+    "last_seen_at": { "type": "string" },
+    "crawl_source": { "type": "string" },
+    "content": { "type": ["string", "null"] },
+    "interview_questions": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "seller_flag": { "type": ["boolean", "null"] },
+    "seller_tags": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "seller_confidence": { "type": ["number", "null"] }
+  }
+}

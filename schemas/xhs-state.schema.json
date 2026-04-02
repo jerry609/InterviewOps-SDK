@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "XhsState",
+  "type": "object",
+  "required": ["version", "updated_at", "queries"],
+  "properties": {
+    "version": { "type": "integer" },
+    "updated_at": { "type": "string" },
+    "queries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["last_run_at", "newest_published_at", "last_result_count"],
+        "properties": {
+          "last_run_at": { "type": "string" },
+          "newest_published_at": { "type": ["string", "null"] },
+          "last_result_count": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

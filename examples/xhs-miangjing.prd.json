@@ -1,0 +1,23 @@
+{
+  "queries": [
+    "大模型 面经",
+    "算法 面经",
+    "后端 面经",
+    "智算平台 面经",
+    "智能体 面经",
+    "小红书 NLP 面经"
+  ],
+  "dataDir": "./interview_data",
+  "reportDir": "./reports/xhs-miangjing",
+  "stateFile": "./interview_data/xhs_miangjing_state.json",
+  "maxSearchResultsPerQuery": 20,
+  "perQueryTimeoutSeconds": 30,
+  "detailTimeoutSeconds": 25,
+  "commentTimeoutSeconds": 15,
+  "commentLimit": 10,
+  "detailBatch": 8,
+  "commentBatch": 6,
+  "harvestEvery": 2,
+  "sleepMinSeconds": 30,
+  "sleepMaxSeconds": 120
+}

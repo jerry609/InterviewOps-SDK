@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.DS_Store
+.omx/state/
+interview_data/*.json
+reports/xhs-miangjing/*.html
+reports/xhs-miangjing/*.json
+reports/xhs-miangjing/*.md
+reports/xhs-miangjing/*.log
+!interview_data/.gitkeep
+!reports/xhs-miangjing/.gitkeep
