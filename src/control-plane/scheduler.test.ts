@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { chooseFallbackOperation } from './scheduler.js';
 
+const workspace = '/repo/workspaces/xhs-agent-algo-feb2026';
+const configPath = `${workspace}/interviewops.xhs.json`;
+
 describe('chooseFallbackOperation', () => {
   it('prioritizes hydrate before harvest when hydrate backlog exists', () => {
     expect(chooseFallbackOperation({
-      workspace: '/tmp/workspace',
-      config_path: '/tmp/workspace/interviewops.xhs.json',
+      workspace,
+      config_path: configPath,
       backlog: {
         due_queries: 4,
         pending_hydrate: 2,
@@ -34,8 +37,8 @@ describe('chooseFallbackOperation', () => {
 
   it('uses the exact plan reason strings for each fallback operation', () => {
     expect(chooseFallbackOperation({
-      workspace: '/tmp/workspace',
-      config_path: '/tmp/workspace/interviewops.xhs.json',
+      workspace,
+      config_path: configPath,
       backlog: {
         due_queries: 0,
         pending_hydrate: 0,
@@ -52,8 +55,8 @@ describe('chooseFallbackOperation', () => {
     });
 
     expect(chooseFallbackOperation({
-      workspace: '/tmp/workspace',
-      config_path: '/tmp/workspace/interviewops.xhs.json',
+      workspace,
+      config_path: configPath,
       backlog: {
         due_queries: 3,
         pending_hydrate: 0,
@@ -70,8 +73,8 @@ describe('chooseFallbackOperation', () => {
     });
 
     expect(chooseFallbackOperation({
-      workspace: '/tmp/workspace',
-      config_path: '/tmp/workspace/interviewops.xhs.json',
+      workspace,
+      config_path: configPath,
       backlog: {
         due_queries: 0,
         pending_hydrate: 0,
@@ -87,8 +90,8 @@ describe('chooseFallbackOperation', () => {
     });
 
     expect(chooseFallbackOperation({
-      workspace: '/tmp/workspace',
-      config_path: '/tmp/workspace/interviewops.xhs.json',
+      workspace,
+      config_path: configPath,
       backlog: {
         due_queries: 0,
         pending_hydrate: 0,
