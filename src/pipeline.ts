@@ -10,7 +10,11 @@ import {
   ensureControlPlaneState,
   resolveControlPlaneJournalPath,
 } from './control-plane/state.js';
-import type { ControlPlaneJournalEvent } from './control-plane/contracts.js';
+import { executeControlPlaneOperation } from './control-plane/executor.js';
+import type {
+  ControlPlaneJournalEvent,
+  ControlPlaneOperation,
+} from './control-plane/contracts.js';
 import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, isQuestionUsable, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
@@ -208,6 +212,10 @@ export class InterviewOpsPipeline {
 
   appendControlPlaneEvent(event: ControlPlaneJournalEvent): void {
     appendControlPlaneJournalEvent(this.controlPlaneJournalPath, event);
+  }
+
+  runControlPlaneOperation(operation: ControlPlaneOperation): PipelineOperationRecord {
+    return executeControlPlaneOperation(this, operation);
   }
 
   doctor(): DoctorCheck[] {
