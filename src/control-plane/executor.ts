@@ -30,25 +30,25 @@ export function executeControlPlaneOperation(
   operation: ControlPlaneOperation,
 ): PipelineOperationRecord {
   const startedAt = nowIsoUtc8();
-
-  pipeline.writeControlPlaneState((current) => ({
-    ...current,
-    active_operation: operation,
-    last_decision_at: startedAt,
-    last_decision_reason: operation.reason,
-  }));
-  pipeline.appendControlPlaneEvent({
-    type: 'operation.started',
-    at: startedAt,
-    operation,
-  });
+  const stage = OPERATION_STAGE_MAP[operation.kind];
 
   try {
+    pipeline.writeControlPlaneState((current) => ({
+      ...current,
+      active_operation: operation,
+      last_decision_at: startedAt,
+      last_decision_reason: operation.reason,
+    }));
+    pipeline.appendControlPlaneEvent({
+      type: 'operation.started',
+      at: startedAt,
+      operation,
+    });
     runStageOperation(pipeline, operation);
 
-    const record = pipeline.readState().operations?.[OPERATION_STAGE_MAP[operation.kind]];
-    if (!record) {
-      throw new Error(`missing operation record for stage ${OPERATION_STAGE_MAP[operation.kind]}`);
+    const record = pipeline.readState().operations?.[stage];
+    if (!record || !isFreshStageRecord(record, startedAt)) {
+      throw new Error(`missing fresh operation record for stage ${stage}`);
     }
 
     pipeline.writeControlPlaneState((current) => ({
@@ -64,19 +64,42 @@ export function executeControlPlaneOperation(
 
     return record;
   } catch (error) {
-    pipeline.writeControlPlaneState((current) => ({
-      ...current,
-      scheduler_mode: 'degraded-local',
-      active_operation: null,
-    }));
-    pipeline.appendControlPlaneEvent({
-      type: 'operation.failed',
-      at: nowIsoUtc8(),
-      operation,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const message = error instanceof Error ? error.message : String(error);
+
+    try {
+      pipeline.writeControlPlaneState((current) => ({
+        ...current,
+        scheduler_mode: 'degraded-local',
+        active_operation: null,
+      }));
+    } catch {
+      // Keep the original failure as the surfaced error.
+    }
+
+    try {
+      pipeline.appendControlPlaneEvent({
+        type: 'operation.failed',
+        at: nowIsoUtc8(),
+        operation,
+        error: message,
+      });
+    } catch {
+      // Keep the original failure as the surfaced error.
+    }
+
     throw error;
   }
+}
+
+function isFreshStageRecord(record: PipelineOperationRecord, startedAt: string): boolean {
+  const recordedAt = Date.parse(record.last_run_at);
+  const startedAtMs = Date.parse(startedAt);
+
+  if (!Number.isFinite(recordedAt) || !Number.isFinite(startedAtMs)) {
+    return false;
+  }
+
+  return recordedAt >= startedAtMs;
 }
 
 function runStageOperation(
@@ -85,7 +108,7 @@ function runStageOperation(
 ): void {
   switch (operation.kind) {
     case 'harvest':
-      pipeline.harvestIncremental();
+      pipeline.harvestIncremental(operation.query_limit);
       return;
     case 'hydrate':
       pipeline.hydrateDetails(operation.limit);

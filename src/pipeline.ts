@@ -349,13 +349,13 @@ export class InterviewOpsPipeline {
     };
   }
 
-  harvestIncremental(): void {
+  harvestIncremental(queryLimit?: number): void {
     const startedAt = Date.now();
     const seenAt = nowIsoUtc8();
     const notes = this.readNotes();
     const byId = new Map(notes.map((note) => [note.note_id, note]));
     const state = this.readState();
-    const queries = this.buildHarvestQueries(notes, state);
+    const queries = this.buildHarvestQueries(notes, state, queryLimit);
     let totalRows = 0;
     let added = 0;
     let errors = 0;
@@ -1171,6 +1171,7 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
   private buildHarvestQueries(
     notes: XhsNote[],
     state: XhsState,
+    queryLimit?: number,
   ): Array<{ query: string; due: boolean; nextRunAfter: string | null; slotCost: number; timeoutSeconds: number; priority: number }> {
     const queries = new Set(this.config.queries.map((query) => query.trim()).filter(Boolean));
     const extraCounts = new Map<string, number>();
@@ -1211,6 +1212,9 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     const selected: typeof duePlans = [];
     let usedSlots = 0;
     for (const plan of duePlans) {
+      if (queryLimit != null && selected.length >= queryLimit) {
+        break;
+      }
       if (selected.length > 0 && usedSlots + plan.slotCost > this.config.maxQueriesPerHarvest) {
         continue;
       }
