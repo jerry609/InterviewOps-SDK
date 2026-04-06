@@ -49,6 +49,7 @@ function writeFixturePrd(workspace: string): void {
       source: 'xiaohongshu',
       queries: [],
       dataDir: './interview_data',
+      reportDir: './reports/xhs-agent-algo-feb2026',
       stateFile: './interview_data/xhs_agent_algo_feb2026_state.json',
     }, null, 2),
     'utf8',
@@ -73,6 +74,7 @@ function writeWorkspaceStateFixture(
     source: 'xiaohongshu',
     queries,
     dataDir: './interview_data',
+    reportDir: './reports/xhs-agent-algo-feb2026',
     stateFile: './interview_data/xhs_agent_algo_feb2026_state.json',
   }, null, 2), 'utf8');
   fs.writeFileSync(path.join(dataDir, 'xhs_notes.json'), JSON.stringify(notes, null, 2), 'utf8');
@@ -81,6 +83,44 @@ function writeWorkspaceStateFixture(
     updated_at: '2026-04-03T00:00:00+08:00',
     queries: stateQueries,
   }, null, 2), 'utf8');
+}
+
+function recordFreshOperation(
+  workspace: string,
+  stage: 'harvest' | 'hydrate' | 'comments' | 'normalize' | 'export' | 'validate' = 'validate',
+  detail = 'omx executed one control-plane operation',
+): void {
+  const prd = JSON.parse(fs.readFileSync(path.join(workspace, 'interviewops.xhs.json'), 'utf8')) as Record<string, any>;
+  const statePath = path.resolve(workspace, String(prd.stateFile || './interview_data/xhs_agent_algo_feb2026_state.json'));
+  const journalPath = path.resolve(workspace, String(prd.reportDir || './reports/xhs-miangjing'), 'operation_journal.jsonl');
+  const at = new Date().toISOString();
+  const state = fs.existsSync(statePath)
+    ? JSON.parse(fs.readFileSync(statePath, 'utf8')) as Record<string, any>
+    : { version: 1, updated_at: at, queries: {} };
+
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+
+  state.updated_at = at;
+  state.operations = {
+    ...(state.operations || {}),
+    [stage]: {
+      stage,
+      last_run_at: at,
+      ok: true,
+      detail,
+    },
+  };
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+  fs.appendFileSync(journalPath, `${JSON.stringify({
+    type: 'operation.succeeded',
+    at,
+    operation: {
+      kind: stage,
+      reason: detail,
+    },
+    detail,
+  })}\n`, 'utf8');
 }
 
 describe('buildAgentAlgoLlmRalphTask', () => {
@@ -130,7 +170,10 @@ describe('runRalphLoop', () => {
       .mockImplementationOnce(() => {
         throw new Error('temporary omx crash');
       })
-      .mockReturnValueOnce(0);
+      .mockImplementationOnce(() => {
+        recordFreshOperation(workspace);
+        return 0;
+      });
     vi.mocked(runProcess)
       .mockReturnValueOnce({
         stdout: `${JSON.stringify(buildControlStatus(workspace, {
@@ -180,7 +223,60 @@ describe('runRalphLoop', () => {
     expect(log).toContain('omx attempt 1 error=Error: temporary omx crash');
     expect(log).toContain('retrying after 5s');
     expect(log).toContain('omx attempt 2 exit=0');
+    expect(log).not.toContain('starting local fallback');
     expect(atomicsWait).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back locally when omx exits zero without creating a fresh operation', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loop-repo-'));
+    const workspace = path.join(repoRoot, 'workspaces/xhs-agent-algo-feb2026');
+    fs.mkdirSync(workspace, { recursive: true });
+    writeFixturePrd(workspace);
+
+    vi.mocked(runStableOmx).mockReturnValueOnce(0);
+    vi.mocked(runProcess)
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 0,
+          pending_comments: 0,
+          notes_total: 0,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 0,
+          pending_comments: 0,
+          notes_total: 0,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
+      .mockReturnValueOnce({ stdout: 'ok\n', stderr: '', status: 0 });
+
+    const status = runRalphLoop({
+      repoRoot,
+      targetWorkspace: workspace,
+      prdPath: path.join(workspace, 'interviewops.xhs.json'),
+      iterations: 1,
+      sleepSeconds: 1,
+      autoCommit: false,
+    });
+
+    const logPath = path.join(workspace, 'reports/xhs-agent-algo-feb2026/ralph-loop.log');
+    const log = fs.readFileSync(logPath, 'utf8');
+
+    expect(status).toBe(0);
+    expect(runStableOmx).toHaveBeenCalledTimes(1);
+    expect(log).toContain('starting local fallback');
+    expect(runProcess.mock.calls.some(([, args]) =>
+      Array.isArray(args) && args[3] === 'run-operation' && args[4] === 'validate',
+    )).toBe(true);
   });
 
   it('falls back to one local control-plane operation after OMX fails', () => {
@@ -370,7 +466,10 @@ describe('runRalphLoop', () => {
 
     vi.mocked(runStableOmx)
       .mockReturnValueOnce(1)
-      .mockReturnValueOnce(0);
+      .mockImplementationOnce(() => {
+        recordFreshOperation(workspace);
+        return 0;
+      });
     vi.mocked(runProcess)
       .mockReturnValueOnce({
         stdout: `${JSON.stringify(buildControlStatus(workspace, {
@@ -441,7 +540,10 @@ describe('runRalphLoop', () => {
       .mockImplementationOnce(() => {
         throw new Error('spawnSync omx ETIMEDOUT');
       })
-      .mockReturnValueOnce(0);
+      .mockImplementationOnce(() => {
+        recordFreshOperation(workspace);
+        return 0;
+      });
     vi.mocked(runProcess).mockReturnValue({
       stdout: `${JSON.stringify(buildControlStatus(workspace, {
         due_queries: 0,
@@ -593,7 +695,10 @@ describe('runRalphLoop', () => {
       ],
     });
 
-    vi.mocked(runStableOmx).mockReturnValueOnce(0);
+    vi.mocked(runStableOmx).mockImplementationOnce(() => {
+      recordFreshOperation(workspace);
+      return 0;
+    });
     vi.mocked(runProcess).mockReturnValueOnce({
       stdout: `${JSON.stringify(buildControlStatus(workspace, {
         due_queries: 0,

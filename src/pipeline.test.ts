@@ -350,6 +350,42 @@ describe('InterviewOpsPipeline', () => {
     expect(notes[0].query).toBe('智算平台 面经');
   });
 
+  it('reflects repeated seed-derived queries in the control-status backlog snapshot', () => {
+    const { pipeline, workspace, statePath } = createPipelineFixture([], ['算法 面经'], {
+      seedSourceNotesPath: './seed.json',
+    });
+    fs.writeFileSync(path.join(workspace, 'seed.json'), JSON.stringify([
+      buildNote({ note_id: 'seed-1', query: '智算平台 面经' }),
+      buildNote({ note_id: 'seed-2', query: '智算平台 面经' }),
+    ], null, 2), 'utf8');
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 1,
+        updated_at: '2026-04-03T00:00:00+08:00',
+        queries: {
+          '算法 面经': {
+            last_run_at: '2026-04-03T08:00:00+08:00',
+            newest_published_at: '2026-04-03',
+            last_result_count: 2,
+            added_note_count: 1,
+            duplicate_note_count: 1,
+            empty_runs: 0,
+            error_runs: 0,
+            timeout_runs: 0,
+            next_run_after: '2099-01-01T00:00:00+08:00',
+          },
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    expect(pipeline.readControlPlaneSnapshot().backlog).toMatchObject({
+      due_queries: 1,
+      strict_export_ready: false,
+    });
+  });
+
   it('skips seed import when the source file is unchanged', () => {
     const { pipeline, workspace } = createPipelineFixture([], [], {
       scopeFilter: {

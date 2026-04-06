@@ -53,6 +53,7 @@ export function executeControlPlaneOperation(
 
     pipeline.writeControlPlaneState((current) => ({
       ...current,
+      scheduler_mode: 'polling',
       active_operation: null,
     }));
     pipeline.appendControlPlaneEvent({

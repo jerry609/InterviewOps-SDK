@@ -74,6 +74,19 @@ describe('executeControlPlaneOperation', () => {
       reason: 'due query backlog exceeds threshold',
     };
     let record: Record<string, any> | null = null;
+    const initialState = pipeline.readState();
+
+    initialState.control_plane = {
+      scheduler_mode: 'degraded-local',
+      objective: 'collect',
+      last_decision_at: null,
+      last_decision_reason: null,
+      active_operation: null,
+      cooldowns: {},
+      circuits: {},
+      backlog_snapshot: null,
+    };
+    pipeline.writeState(initialState);
 
     const harvest = vi.spyOn(pipeline, 'harvestIncremental').mockImplementation(() => {
       const startedState = pipeline.readState();
@@ -107,6 +120,7 @@ describe('executeControlPlaneOperation', () => {
     expect(harvest).toHaveBeenCalledTimes(1);
     expect(result).toEqual(record);
     expect(state.control_plane).toMatchObject({
+      scheduler_mode: 'polling',
       active_operation: null,
       last_decision_reason: operation.reason,
     });

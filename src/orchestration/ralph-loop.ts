@@ -39,6 +39,8 @@ const DEFAULT_LOOP_MAX_CONSECUTIVE_FAILURES = 4;
 const DEFAULT_LOOP_FAILURE_BACKOFF_SECONDS = 120;
 const DEFAULT_OMX_COOLDOWN_ITERATIONS = 3;
 const DEFAULT_OMX_CIRCUIT_BREAK_AFTER_TIMEOUTS = 2;
+const DEFAULT_CONTROL_PLANE_STATE_FILE = './interview_data/xhs_miangjing_state.json';
+const DEFAULT_CONTROL_PLANE_REPORT_DIR = './reports/xhs-miangjing';
 
 export function buildAgentAlgoLlmRalphTask(
   repoRoot: string,
@@ -87,7 +89,8 @@ export function runRalphLoop(options: RalphLoopOptions): number {
     } else {
       let backlogSkipped = false;
       for (let attempt = 1; attempt <= retries; attempt += 1) {
-        appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt}/${retries}`);
+        const omxAttemptStartedAt = nowIsoUtc8();
+        appendLog(logPath, `[${omxAttemptStartedAt}] iteration ${iteration} omx attempt ${attempt}/${retries}`);
         try {
           const controlStatus = readControlStatus(options.repoRoot, options.targetWorkspace, options.prdPath);
           const backlogReason = formatBacklogReason(controlStatus.snapshot);
@@ -109,7 +112,21 @@ export function runRalphLoop(options: RalphLoopOptions): number {
             options.execTimeoutMs ?? DEFAULT_RALPH_EXEC_TIMEOUT_MS,
           );
           consecutiveOmxTimeouts = 0;
-          appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} exit=${status}`);
+          const freshOperation = status === 0
+            ? detectFreshOmxOperation(options.targetWorkspace, options.prdPath, omxAttemptStartedAt)
+            : null;
+          if (status === 0 && !freshOperation) {
+            appendLog(
+              logPath,
+              `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} exit=0 but no fresh operation record/event after ${omxAttemptStartedAt}`,
+            );
+            status = 1;
+          } else {
+            appendLog(
+              logPath,
+              `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} exit=${status}${freshOperation ? ` verified=${freshOperation}` : ''}`,
+            );
+          }
         } catch (error) {
           status = 1;
           const timeoutLike = isTimeoutLikeError(error);
@@ -309,6 +326,101 @@ function readControlStatusJson(repoRoot: string, targetWorkspace: string, prdPat
 
 function parseControlStatusSnapshot(snapshotJson: string): ControlStatusSnapshot {
   return JSON.parse(snapshotJson) as ControlStatusSnapshot;
+}
+
+function detectFreshOmxOperation(targetWorkspace: string, prdPath: string, attemptStartedAt: string): string | null {
+  const attemptStartedAtMs = Date.parse(attemptStartedAt);
+  if (!Number.isFinite(attemptStartedAtMs)) {
+    return null;
+  }
+
+  const runtimePaths = resolveControlPlaneRuntimePaths(targetWorkspace, prdPath);
+  const freshRecord = readFreshOperationRecord(runtimePaths.statePath, attemptStartedAtMs);
+  if (freshRecord) {
+    return `record:${freshRecord}`;
+  }
+  const freshEvent = readFreshOperationEvent(runtimePaths.journalPath, attemptStartedAtMs);
+  if (freshEvent) {
+    return `event:${freshEvent}`;
+  }
+  return null;
+}
+
+function resolveControlPlaneRuntimePaths(targetWorkspace: string, prdPath: string): {
+  statePath: string;
+  journalPath: string;
+} {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(fs.readFileSync(prdPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    parsed = {};
+  }
+
+  const stateFile = String(parsed.stateFile || DEFAULT_CONTROL_PLANE_STATE_FILE).trim() || DEFAULT_CONTROL_PLANE_STATE_FILE;
+  const reportDir = String(parsed.reportDir || DEFAULT_CONTROL_PLANE_REPORT_DIR).trim() || DEFAULT_CONTROL_PLANE_REPORT_DIR;
+
+  return {
+    statePath: path.resolve(targetWorkspace, stateFile),
+    journalPath: path.resolve(targetWorkspace, reportDir, 'operation_journal.jsonl'),
+  };
+}
+
+function readFreshOperationRecord(statePath: string, attemptStartedAtMs: number): string | null {
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as {
+      operations?: Record<string, { last_run_at?: string | null } | undefined>;
+    };
+
+    for (const [stage, record] of Object.entries(state.operations || {})) {
+      const recordedAt = Date.parse(String(record?.last_run_at || ''));
+      if (Number.isFinite(recordedAt) && recordedAt >= attemptStartedAtMs) {
+        return `${stage}@${record?.last_run_at}`;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function readFreshOperationEvent(journalPath: string, attemptStartedAtMs: number): string | null {
+  if (!fs.existsSync(journalPath)) {
+    return null;
+  }
+
+  try {
+    const content = fs.readFileSync(journalPath, 'utf8').trim();
+    if (!content) {
+      return null;
+    }
+    for (const line of content.split('\n').reverse()) {
+      const event = JSON.parse(line) as {
+        type?: string;
+        at?: string;
+        operation?: { kind?: string };
+      };
+      const eventAt = Date.parse(String(event.at || ''));
+      if (
+        Number.isFinite(eventAt)
+        && eventAt >= attemptStartedAtMs
+        && typeof event.type === 'string'
+        && typeof event.operation?.kind === 'string'
+        && event.type.startsWith('operation.')
+      ) {
+        return `${event.type}:${event.operation.kind}@${event.at}`;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function resolveLocalCommandTimeoutMs(kind: RalphLoopCommand['label']): number {

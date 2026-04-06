@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 
+import { buildHarvestQueryPlans, type HarvestPlannerConfig } from '../harvest-planner.js';
 import { appendJsonLine } from '../json.js';
 import type { XhsNote, XhsPrdConfig, XhsState } from '../types.js';
 import {
@@ -12,13 +13,16 @@ import {
 export function buildBacklogSnapshot(
   notes: XhsNote[],
   state: XhsState,
-  config: Pick<Required<XhsPrdConfig>, 'queries'>,
+  config: Pick<Required<XhsPrdConfig>, 'queries'> & Partial<HarvestPlannerConfig>,
   nowMs = Date.now(),
+  seedNotes: XhsNote[] = [],
 ): BacklogSnapshot {
-  const dueQueries = config.queries.filter((query) => {
-    const nextRunAfter = String(state.queries?.[query]?.next_run_after || '').trim();
-    const nextRunAt = Date.parse(nextRunAfter);
-    return !nextRunAfter || !Number.isFinite(nextRunAt) || nextRunAt <= nowMs;
+  const dueQueries = buildHarvestQueryPlans({
+    notes,
+    seedNotes,
+    state,
+    config,
+    nowMs,
   }).length;
 
   const pendingHydrate = notes.filter((note) => {

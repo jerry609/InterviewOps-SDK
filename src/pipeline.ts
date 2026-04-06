@@ -15,6 +15,7 @@ import type {
   ControlPlaneJournalEvent,
   ControlPlaneOperation,
 } from './control-plane/contracts.js';
+import { buildHarvestQueryPlans } from './harvest-planner.js';
 import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, isQuestionUsable, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
@@ -63,7 +64,6 @@ const DEFAULT_PRD: Required<XhsPrdConfig> = {
   nightlyFailureBackoffSeconds: 90,
 };
 
-const SEARCH_TIMEOUT_FLOOR_SECONDS = 75;
 const NOTE_RETRY_BACKOFF_MINUTES = [15, 60, 360] as const;
 
 export class InterviewOpsPipeline {
@@ -181,7 +181,7 @@ export class InterviewOpsPipeline {
     const notes = this.readNotes();
     const state = this.readState();
     const controlPlane = ensureControlPlaneState(state);
-    const backlog = buildBacklogSnapshot(notes, state, this.config, Date.now());
+    const backlog = buildBacklogSnapshot(notes, state, this.config, Date.now(), this.readSeedSourceNotes());
     const recentOperations = Object.values(state.operations || {})
       .filter((item): item is PipelineOperationRecord => Boolean(item))
       .sort((a, b) => b.last_run_at.localeCompare(a.last_run_at));
@@ -1173,58 +1173,13 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     state: XhsState,
     queryLimit?: number,
   ): Array<{ query: string; due: boolean; nextRunAfter: string | null; slotCost: number; timeoutSeconds: number; priority: number }> {
-    const queries = new Set(this.config.queries.map((query) => query.trim()).filter(Boolean));
-    const extraCounts = new Map<string, number>();
-    for (const note of [...notes, ...this.readSeedSourceNotes()]) {
-      const query = String(note.query || '').trim();
-      if (!query || queries.has(query)) {
-        continue;
-      }
-      extraCounts.set(query, (extraCounts.get(query) || 0) + 1);
-    }
-    const extras = [...extraCounts.entries()]
-      .filter(([, count]) => count >= 2)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 8)
-      .map(([query]) => query);
-    const now = Date.now();
-    const plans = [...queries, ...extras].map((query) => {
-      const queryState = state.queries?.[query];
-      const nextRunAfter = String(queryState?.next_run_after || '').trim() || null;
-      const nextRunAt = nextRunAfter ? Date.parse(nextRunAfter) : NaN;
-      const due = !nextRunAfter || !Number.isFinite(nextRunAt) || nextRunAt <= now;
-      return {
-        query,
-        due,
-        nextRunAfter,
-        slotCost: this.computeQuerySlotCost(queryState),
-        timeoutSeconds: this.resolveSearchTimeoutSeconds(queryState),
-        priority: computeQueryPriority(queryState),
-      };
+    return buildHarvestQueryPlans({
+      notes,
+      seedNotes: this.readSeedSourceNotes(),
+      state,
+      config: this.config,
+      queryLimit,
     });
-    const duePlans = plans
-      .filter((plan) => plan.due)
-      .sort((a, b) => {
-        const aState = state.queries?.[a.query];
-        const bState = state.queries?.[b.query];
-        return compareQueryPlans(a.query, a.priority, aState, b.query, b.priority, bState);
-      });
-    const selected: typeof duePlans = [];
-    let usedSlots = 0;
-    for (const plan of duePlans) {
-      if (queryLimit != null && selected.length >= queryLimit) {
-        break;
-      }
-      if (selected.length > 0 && usedSlots + plan.slotCost > this.config.maxQueriesPerHarvest) {
-        continue;
-      }
-      selected.push(plan);
-      usedSlots += plan.slotCost;
-      if (usedSlots >= this.config.maxQueriesPerHarvest) {
-        break;
-      }
-    }
-    return selected;
   }
 
   private buildScopeSnapshot(notes: XhsNote[]): ScopeSnapshot | null {
@@ -1319,21 +1274,6 @@ ${sellerNotes.map((item) => `- ${item.author} | ${item.title} | confidence=${ite
     return addMinutes(input.seenAt, baseMinutes * multiplier);
   }
 
-  private resolveSearchTimeoutSeconds(queryState: XhsState['queries'][string] | undefined): number {
-    const timeoutRuns = Math.max(0, Number(queryState?.timeout_runs || 0));
-    const factor = Math.max(1, Number(this.config.queryTimeoutEscalationFactor || 1));
-    const base = Math.max(this.config.perQueryTimeoutSeconds, SEARCH_TIMEOUT_FLOOR_SECONDS);
-    const escalated = Math.round(base * Math.pow(factor, timeoutRuns));
-    return Math.min(Math.max(base, escalated), this.config.queryTimeoutMaxSeconds);
-  }
-
-  private computeQuerySlotCost(queryState: XhsState['queries'][string] | undefined): number {
-    const timeoutRuns = Math.max(0, Number(queryState?.timeout_runs || 0));
-    if (timeoutRuns <= 0) {
-      return 1;
-    }
-    return Math.max(1, Math.min(3, this.config.timeoutQuerySlotCost + timeoutRuns - 1));
-  }
 }
 
 function formatOperationError(error: unknown): string {
@@ -1423,54 +1363,6 @@ function mergeQueries(
     }
   }
   return [...merged].sort();
-}
-
-function compareQueryPlans(
-  leftQuery: string,
-  leftPriority: number,
-  left: { last_run_at: string; added_note_count?: number; error_runs?: number } | undefined,
-  rightQuery: string,
-  rightPriority: number,
-  right: { last_run_at: string; added_note_count?: number; error_runs?: number } | undefined,
-): number {
-  if (leftPriority !== rightPriority) {
-    return rightPriority - leftPriority;
-  }
-  if (!left && right) {
-    return -1;
-  }
-  if (left && !right) {
-    return 1;
-  }
-  const leftErrors = Number(left?.error_runs || 0);
-  const rightErrors = Number(right?.error_runs || 0);
-  if (leftErrors !== rightErrors) {
-    return leftErrors - rightErrors;
-  }
-  const leftRunAt = Date.parse(left?.last_run_at || '');
-  const rightRunAt = Date.parse(right?.last_run_at || '');
-  if (Number.isFinite(leftRunAt) && Number.isFinite(rightRunAt) && leftRunAt !== rightRunAt) {
-    return leftRunAt - rightRunAt;
-  }
-  return leftQuery.localeCompare(rightQuery);
-}
-
-function computeQueryPriority(queryState: {
-  added_note_count?: number;
-  duplicate_note_count?: number;
-  empty_runs?: number;
-  error_runs?: number;
-  timeout_runs?: number;
-} | undefined): number {
-  if (!queryState) {
-    return 25;
-  }
-  const added = Math.max(0, Number(queryState.added_note_count || 0));
-  const duplicates = Math.max(0, Number(queryState.duplicate_note_count || 0));
-  const emptyRuns = Math.max(0, Number(queryState.empty_runs || 0));
-  const errorRuns = Math.max(0, Number(queryState.error_runs || 0));
-  const timeoutRuns = Math.max(0, Number(queryState.timeout_runs || 0));
-  return (added * 20) + Math.min(duplicates, 5) - (emptyRuns * 8) - (errorRuns * 5) - (timeoutRuns * 12);
 }
 
 function isTimeoutLikeError(error: unknown): boolean {
