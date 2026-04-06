@@ -1,0 +1,56 @@
+import * as path from 'node:path';
+
+import { appendJsonLine } from '../json.js';
+import type { XhsNote, XhsPrdConfig, XhsState } from '../types.js';
+import {
+  type BacklogSnapshot,
+  type ControlPlaneJournalEvent,
+  type ControlPlaneState,
+  createEmptyControlPlaneState,
+} from './contracts.js';
+
+export function buildBacklogSnapshot(
+  notes: XhsNote[],
+  state: XhsState,
+  config: Pick<Required<XhsPrdConfig>, 'queries'>,
+  nowMs = Date.now(),
+): BacklogSnapshot {
+  const dueQueries = config.queries.filter((query) => {
+    const nextRunAfter = String(state.queries?.[query]?.next_run_after || '').trim();
+    const nextRunAt = Date.parse(nextRunAfter);
+    return !nextRunAfter || !Number.isFinite(nextRunAt) || nextRunAt <= nowMs;
+  }).length;
+
+  const pendingHydrate = notes.filter((note) => {
+    const nextAttemptAt = Date.parse(String(note.detail_next_attempt_after || '').trim());
+    return !String(note.content || '').trim() && (!Number.isFinite(nextAttemptAt) || nextAttemptAt <= nowMs);
+  }).length;
+
+  const pendingComments = notes.filter((note) => {
+    const nextAttemptAt = Date.parse(String(note.comment_next_attempt_after || '').trim());
+    return note.comments == null && (!Number.isFinite(nextAttemptAt) || nextAttemptAt <= nowMs);
+  }).length;
+
+  return {
+    due_queries: dueQueries,
+    pending_hydrate: pendingHydrate,
+    pending_comments: pendingComments,
+    notes_total: notes.length,
+    strict_export_ready: dueQueries === 0 && pendingHydrate === 0 && pendingComments === 0,
+  };
+}
+
+export function ensureControlPlaneState(state: XhsState): ControlPlaneState {
+  return state.control_plane || createEmptyControlPlaneState();
+}
+
+export function appendControlPlaneJournalEvent(
+  journalPath: string,
+  event: ControlPlaneJournalEvent,
+): void {
+  appendJsonLine(journalPath, event);
+}
+
+export function resolveControlPlaneJournalPath(reportDir: string): string {
+  return path.resolve(reportDir, 'operation_journal.jsonl');
+}

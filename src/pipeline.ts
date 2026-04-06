@@ -4,6 +4,13 @@ import * as path from 'node:path';
 import { OpenCliRunner } from './adapters/opencli.js';
 import { createSourceAdapter } from './adapters/xiaohongshu.js';
 import type { InterviewSourceAdapter } from './adapters/types.js';
+import {
+  appendControlPlaneJournalEvent,
+  buildBacklogSnapshot,
+  ensureControlPlaneState,
+  resolveControlPlaneJournalPath,
+} from './control-plane/state.js';
+import type { ControlPlaneJournalEvent } from './control-plane/contracts.js';
 import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractNoteId, extractQuestions, inferTopics, isQuestionUsable, normalizeQuestion, noteIdToDate, nowIsoUtc8, parseCompany, parseRounds, questionRowKey, summarizeSellerAuthors } from './heuristics.js';
 import { appendJsonLine, ensureDir, escapeHtml, readJsonFile, writeJsonFile } from './json.js';
 import { runProcess, runProcessOrThrow } from './process.js';
@@ -77,6 +84,7 @@ export class InterviewOpsPipeline {
   readonly scopeReportMarkdownPath: string;
   readonly runHistoryPath: string;
   readonly statusPath: string;
+  readonly controlPlaneJournalPath: string;
 
   constructor(options: PipelineOptions) {
     this.workspace = path.resolve(options.workspace);
@@ -106,6 +114,7 @@ export class InterviewOpsPipeline {
     this.scopeReportMarkdownPath = path.resolve(this.reportDir, 'scope_candidates.md');
     this.runHistoryPath = path.resolve(this.reportDir, 'run_history.jsonl');
     this.statusPath = path.resolve(this.reportDir, 'status.json');
+    this.controlPlaneJournalPath = resolveControlPlaneJournalPath(this.reportDir);
 
     ensureDir(this.dataDir);
     ensureDir(this.reportDir);
@@ -162,6 +171,40 @@ export class InterviewOpsPipeline {
         urls: this.config.sellerWhitelist?.urls?.length || 0,
       },
     };
+  }
+
+  readControlPlaneSnapshot() {
+    const notes = this.readNotes();
+    const state = this.readState();
+    const controlPlane = ensureControlPlaneState(state);
+    const backlog = buildBacklogSnapshot(notes, state, this.config, Date.now());
+
+    return {
+      workspace: this.workspace,
+      config_path: this.prdPath,
+      backlog,
+      control_plane: {
+        ...controlPlane,
+        backlog_snapshot: backlog,
+      },
+      recent_operations: Object.values(state.operations || {}).filter(Boolean),
+    };
+  }
+
+  writeControlPlaneState(
+    mutate: (
+      current: ReturnType<typeof ensureControlPlaneState>,
+    ) => ReturnType<typeof ensureControlPlaneState>,
+  ): void {
+    const state = this.readState();
+    state.control_plane = mutate(ensureControlPlaneState(state));
+    state.updated_at = nowIsoUtc8();
+    this.writeState(state);
+    writeJsonFile(this.statusPath, this.status());
+  }
+
+  appendControlPlaneEvent(event: ControlPlaneJournalEvent): void {
+    appendControlPlaneJournalEvent(this.controlPlaneJournalPath, event);
   }
 
   doctor(): DoctorCheck[] {
