@@ -7,6 +7,13 @@ import { describe, expect, it } from 'vitest';
 
 import { runProcess } from './process.js';
 
+type CliErrorEnvelope = {
+  error: {
+    command: string;
+    message: string;
+  };
+};
+
 function buildNote(): Record<string, unknown> {
   return {
     note_id: 'cli-seed-note',
@@ -57,6 +64,10 @@ function createCliWorkspace(config: Partial<Record<string, unknown>> = {}): {
   return { workspace, prdPath };
 }
 
+function parseCliError(stderr: string): CliErrorEnvelope {
+  return JSON.parse(stderr) as CliErrorEnvelope;
+}
+
 describe('cli seed-import', () => {
   it('resolves relative seedSourceNotesPath from the workspace', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,6 +94,20 @@ describe('cli seed-import', () => {
 });
 
 describe('control-plane cli commands', () => {
+  it('includes control-status and run-operation in --help output', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+    const result = runProcess(
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts', '--help'],
+      { cwd: repoRoot, timeoutMs: 30_000 },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('control-status');
+    expect(result.stdout).toContain('run-operation');
+  });
+
   it('prints a control-plane snapshot JSON for control-status', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     const { workspace, prdPath } = createCliWorkspace();
@@ -98,6 +123,27 @@ describe('control-plane cli commands', () => {
       workspace,
       backlog: expect.any(Object),
       control_plane: expect.any(Object),
+    });
+  });
+
+  it('emits a JSON error envelope when control-status hits a runtime failure', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const { workspace, prdPath } = createCliWorkspace();
+
+    fs.writeFileSync(prdPath, '{invalid json', 'utf8');
+
+    const result = runProcess(
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts', 'control-status', '--workspace', workspace, '--prd', prdPath],
+      { cwd: repoRoot, timeoutMs: 30_000 },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parseCliError(result.stderr)).toMatchObject({
+      error: {
+        command: 'control-status',
+        message: expect.any(String),
+      },
     });
   });
 
@@ -127,6 +173,99 @@ describe('control-plane cli commands', () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       stage: 'validate',
       ok: true,
+    });
+  });
+
+  it('fails run-operation validate without --reason with a JSON error envelope', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const { workspace, prdPath } = createCliWorkspace();
+
+    const result = runProcess(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'src/cli.ts',
+        'run-operation',
+        'validate',
+        '--workspace',
+        workspace,
+        '--prd',
+        prdPath,
+      ],
+      { cwd: repoRoot, timeoutMs: 30_000 },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parseCliError(result.stderr)).toEqual({
+      error: {
+        command: 'run-operation',
+        message: 'run-operation requires --reason TEXT',
+      },
+    });
+  });
+
+  it('fails run-operation for unsupported kinds with a JSON error envelope', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const { workspace, prdPath } = createCliWorkspace();
+
+    const result = runProcess(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'src/cli.ts',
+        'run-operation',
+        'unknown-kind',
+        '--workspace',
+        workspace,
+        '--prd',
+        prdPath,
+        '--reason',
+        'invalid kind smoke test',
+      ],
+      { cwd: repoRoot, timeoutMs: 30_000 },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parseCliError(result.stderr)).toEqual({
+      error: {
+        command: 'run-operation',
+        message: 'unsupported operation kind: unknown-kind',
+      },
+    });
+  });
+
+  it.each(['0', '-1', '1.5'])('fails run-operation hydrate with invalid --limit=%s', (limit) => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const { workspace, prdPath } = createCliWorkspace();
+
+    const result = runProcess(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'src/cli.ts',
+        'run-operation',
+        'hydrate',
+        '--workspace',
+        workspace,
+        '--prd',
+        prdPath,
+        '--limit',
+        limit,
+        '--reason',
+        'invalid limit smoke test',
+      ],
+      { cwd: repoRoot, timeoutMs: 30_000 },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(parseCliError(result.stderr)).toEqual({
+      error: {
+        command: 'run-operation',
+        message: '--limit must be a positive integer',
+      },
     });
   });
 });

@@ -141,10 +141,24 @@ function parseOptionalLimit(parsed: ParsedCli): number | undefined {
   }
 
   const limit = Number(parsed.options.limit);
-  if (!Number.isFinite(limit)) {
-    throw new Error('--limit must be a finite number');
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error('--limit must be a positive integer');
   }
   return limit;
+}
+
+function isControlPlaneCommand(command: string): command is 'control-status' | 'run-operation' {
+  return command === 'control-status' || command === 'run-operation';
+}
+
+function writeControlPlaneError(command: 'control-status' | 'run-operation', error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${JSON.stringify({
+    error: {
+      command,
+      message,
+    },
+  }, null, 2)}\n`);
 }
 
 function parseControlPlaneOperation(parsed: ParsedCli): ControlPlaneOperation {
@@ -248,7 +262,7 @@ async function main(): Promise<void> {
       if (!sourceNotesPath) {
         throw new Error('seed-import requires --source-notes PATH or seedSourceNotesPath in config');
       }
-      const imported = pipeline.seedImportNotes(path.resolve(sourceNotesPath));
+      const imported = pipeline.seedImportNotes(sourceNotesPath);
       process.stdout.write(`${JSON.stringify(imported, null, 2)}\n`);
       break;
     }
@@ -341,6 +355,13 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (isControlPlaneCommand(parsed.command)) {
+    writeControlPlaneError(parsed.command, error);
+    process.exit(1);
+    return;
+  }
+
   process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
   process.exit(1);
 });
