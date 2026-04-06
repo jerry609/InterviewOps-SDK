@@ -144,6 +144,24 @@ Command notes:
 - `ralph`: shortcut for `omx-safe exec --full-auto '$ralph "..."'`
 - `ralph-loop`: repeatedly runs bounded Ralph collection cycles for a dedicated workspace
 
+## Control Plane
+
+The control plane is the typed orchestration layer that OMX/Codex reads before deciding the next action.
+
+`control-status` prints the current typed orchestration snapshot:
+
+```bash
+npm run dev -- control-status --workspace ./workspaces/xhs-agent-algo-feb2026
+```
+
+`run-operation` executes exactly one typed operation and persists the result in workspace state and `operation_journal.jsonl`:
+
+```bash
+npm run dev -- run-operation hydrate --workspace ./workspaces/xhs-agent-algo-feb2026 --limit 12 --reason "pending_hydrate backlog dominates current cycle"
+```
+
+`ralph-loop` now uses `control-status` plus `run-operation` internally instead of a fixed stage sequence.
+
 ## OpenCLI Integration
 
 By default the SDK calls:
@@ -392,6 +410,8 @@ It now uses a two-step strategy:
 
 This is intentional because overly narrow XHS queries like
 `腾讯 agent 算法 面经` were timing out in practice.
+
+Each `ralph-loop` cycle now reads `control-status`, selects one operation, and dispatches it through `run-operation` rather than stepping through a fixed stage list.
 
 Primary broad query family includes:
 
