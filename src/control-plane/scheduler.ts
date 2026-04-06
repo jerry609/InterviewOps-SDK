@@ -14,7 +14,7 @@ export function chooseFallbackOperation(snapshot: Pick<ControlStatusSnapshot, 'b
   if (backlog.pending_hydrate > 0) {
     return {
       kind: 'hydrate',
-      reason: 'pending hydrate backlog dominates current cycle',
+      reason: 'pending_hydrate backlog dominates current cycle',
       limit: 12,
     };
   }
@@ -22,7 +22,7 @@ export function chooseFallbackOperation(snapshot: Pick<ControlStatusSnapshot, 'b
   if (backlog.pending_comments > 0) {
     return {
       kind: 'comments',
-      reason: 'pending comments backlog dominates current cycle',
+      reason: 'pending_comments backlog dominates current cycle',
       limit: 8,
     };
   }
@@ -30,7 +30,7 @@ export function chooseFallbackOperation(snapshot: Pick<ControlStatusSnapshot, 'b
   if (backlog.due_queries > 0) {
     return {
       kind: 'harvest',
-      reason: 'due search queries require a harvest pass',
+      reason: 'due_queries backlog requires collection',
       query_limit: backlog.due_queries,
     };
   }
@@ -38,13 +38,13 @@ export function chooseFallbackOperation(snapshot: Pick<ControlStatusSnapshot, 'b
   if (backlog.strict_export_ready) {
     return {
       kind: 'export',
-      reason: 'strict export-ready backlog snapshot reached',
+      reason: 'workspace is export-ready after backlog drain',
     };
   }
 
   return {
     kind: 'validate',
-    reason: 'no higher-priority backlog found; validate workspace state',
+    reason: 'no collection backlog remains; validate workspace health',
   };
 }
 

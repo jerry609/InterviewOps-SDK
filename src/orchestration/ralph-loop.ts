@@ -49,25 +49,18 @@ export function buildAgentAlgoLlmRalphTask(
   prdPath: string,
   snapshotJson: string,
 ): string {
-  const command = `node --import tsx src/cli.ts run-operation <kind> --workspace ${shellQuote(targetWorkspace)} --prd ${shellQuote(prdPath)} --reason <reason>`;
+  const command = `node --import tsx src/cli.ts run-operation <kind> --workspace ${shellQuote(targetWorkspace)} --prd ${shellQuote(prdPath)} --reason "<short reason>"`;
   return [
     'Only operate in the dedicated XHS Agent/LLM algorithm-role workspace.',
     `Workspace: ${targetWorkspace}. Config: ${prdPath}.`,
-    'Do one control-plane operation only and stop.',
-    'Ignore any existing workspace-local `.omx` plans, state, or logs from earlier runs if they conflict with this instruction.',
     'Sandbox note: do not use `npm run dev` here because tsx IPC socket creation fails under Codex sandbox with `listen EPERM`.',
     `Execute each command from repo root ${repoRoot} so local tsx and src/cli.ts resolve correctly even if your working directory is the workspace.`,
-    'Current control-status JSON:',
+    'Read the control-status JSON snapshot below.',
     snapshotJson,
-    'Choose exactly one operation based on the control-status backlog.',
-    'Priority order: pending_hydrate > pending_comments > due_queries > strict_export_ready > validate.',
-    'Limit rules: hydrate => limit 12; comments => limit 8; harvest => query_limit = due_queries.',
-    'Run exactly one command:',
+    'Choose exactly one operation.',
+    'Execute exactly one command from repo root and stop:',
     `cd ${shellQuote(repoRoot)} && ${command}`,
-    'Persist outputs in the workspace only.',
-    'Do not edit repo-wide config, do not broaden scope, do not commit.',
-    'Do not run `cycle`, `status`, or multiple operations.',
-    'Keep the final response brief.',
+    'Do not chain multiple operations.',
   ].join('\n');
 }
 

@@ -56,7 +56,7 @@ function writeFixturePrd(workspace: string): void {
 }
 
 describe('buildAgentAlgoLlmRalphTask', () => {
-  it('embeds control-status json and asks omx to execute exactly one run-operation command', () => {
+  it('matches the one-operation prompt wording from the plan', () => {
     const snapshotJson = JSON.stringify({
       backlog: {
         due_queries: 3,
@@ -73,15 +73,14 @@ describe('buildAgentAlgoLlmRalphTask', () => {
       snapshotJson,
     );
 
-    expect(task).toContain('Only operate in the dedicated XHS Agent/LLM algorithm-role workspace.');
-    expect(task).toContain('Current control-status JSON:');
+    expect(task).toContain('Read the control-status JSON snapshot below.');
     expect(task).toContain(snapshotJson);
-    expect(task).toContain('Choose exactly one operation based on the control-status backlog.');
-    expect(task).toContain('Run exactly one command:');
+    expect(task).toContain('Choose exactly one operation.');
+    expect(task).toContain('Execute exactly one command from repo root and stop:');
     expect(task).toContain(
-      'cd /tmp/repo && node --import tsx src/cli.ts run-operation <kind> --workspace /tmp/workspace --prd /tmp/workspace/interviewops.xhs.json',
+      'cd /tmp/repo && node --import tsx src/cli.ts run-operation <kind> --workspace /tmp/workspace --prd /tmp/workspace/interviewops.xhs.json --reason "<short reason>"',
     );
-    expect(task).toContain('Do not run `cycle`, `status`, or multiple operations.');
+    expect(task).toContain('Do not chain multiple operations.');
   });
 });
 
@@ -239,7 +238,7 @@ describe('runRalphLoop', () => {
         '--limit',
         '12',
         '--reason',
-        'pending hydrate backlog dominates current cycle',
+        'pending_hydrate backlog dominates current cycle',
       ],
       expect.objectContaining({ cwd: repoRoot, timeoutMs: 15 * 60 * 1000 }),
     );
@@ -316,7 +315,7 @@ describe('runRalphLoop', () => {
         '--limit',
         '3',
         '--reason',
-        'due search queries require a harvest pass',
+        'due_queries backlog requires collection',
       ],
       expect.objectContaining({ cwd: repoRoot, timeoutMs: 35 * 60 * 1000 }),
     );
@@ -517,7 +516,7 @@ describe('runRalphLoop', () => {
         '--limit',
         '12',
         '--reason',
-        'pending hydrate backlog dominates current cycle',
+        'pending_hydrate backlog dominates current cycle',
       ],
       expect.objectContaining({ cwd: repoRoot, timeoutMs: 15 * 60 * 1000 }),
     );
