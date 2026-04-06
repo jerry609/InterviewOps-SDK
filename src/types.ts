@@ -1,3 +1,5 @@
+import type { ControlPlaneState } from './control-plane/contracts.js';
+
 export type XhsComment = {
   author?: string | null;
   content?: string | null;
@@ -85,6 +87,7 @@ export type XhsState = {
   updated_at: string;
   queries: Record<string, QueryState>;
   operations?: Partial<Record<PipelineStageName, PipelineOperationRecord>>;
+  control_plane?: ControlPlaneState;
   detail_hydration?: Record<string, unknown>;
   comment_enrichment?: Record<string, unknown>;
   seed_import?: {

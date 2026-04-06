@@ -1,6 +1,7 @@
 export * from './adapters/types.js';
 export * from './adapters/xiaohongshu.js';
 export * from './adapters/opencli.js';
+export * from './control-plane/contracts.js';
 export * from './heuristics.js';
 export * from './orchestration/omx.js';
 export * from './orchestration/ralph-loop.js';
