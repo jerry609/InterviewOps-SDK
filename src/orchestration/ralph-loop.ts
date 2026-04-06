@@ -39,9 +39,6 @@ const DEFAULT_LOOP_MAX_CONSECUTIVE_FAILURES = 4;
 const DEFAULT_LOOP_FAILURE_BACKOFF_SECONDS = 120;
 const DEFAULT_OMX_COOLDOWN_ITERATIONS = 3;
 const DEFAULT_OMX_CIRCUIT_BREAK_AFTER_TIMEOUTS = 2;
-const DEFAULT_OMX_MAX_DUE_QUERIES = 0;
-const DEFAULT_OMX_MAX_PENDING_HYDRATE = 0;
-const DEFAULT_OMX_MAX_PENDING_COMMENTS = 0;
 
 export function buildAgentAlgoLlmRalphTask(
   repoRoot: string,
@@ -88,53 +85,54 @@ export function runRalphLoop(options: RalphLoopOptions): number {
         `[${nowIsoUtc8()}] iteration ${iteration} skipping omx due to timeout cooldown until iteration ${omxSkipUntilIteration}`,
       );
     } else {
-      const backlogReason = readOmxBacklogReason(options.targetWorkspace, options.prdPath);
-      if (backlogReason) {
-        appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} skipping omx due to local backlog ${backlogReason}`);
-      } else {
-        for (let attempt = 1; attempt <= retries; attempt += 1) {
-          appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt}/${retries}`);
-          try {
-            const snapshotJson = readControlStatusJson(options.repoRoot, options.targetWorkspace, options.prdPath);
-            const task = buildAgentAlgoLlmRalphTask(
-              options.repoRoot,
-              options.targetWorkspace,
-              options.prdPath,
-              snapshotJson,
-            );
-            status = runStableOmx(
-              ['exec', '--full-auto', `$ralph "${task.replaceAll('"', '\\"')}"`],
-              options.repoRoot,
-              options.execTimeoutMs ?? DEFAULT_RALPH_EXEC_TIMEOUT_MS,
-            );
-            appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} exit=${status}`);
-            if (status === 0) {
-              consecutiveOmxTimeouts = 0;
-            }
-          } catch (error) {
-            status = 1;
-            const timeoutLike = isTimeoutLikeError(error);
-            consecutiveOmxTimeouts = timeoutLike ? consecutiveOmxTimeouts + 1 : 0;
-            appendLog(
-              logPath,
-              `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} error=${formatError(error)}`,
-            );
-            if (timeoutLike && consecutiveOmxTimeouts >= omxCircuitBreakAfterTimeouts) {
-              omxSkipUntilIteration = iteration + omxCooldownIterations;
-              appendLog(
-                logPath,
-                `[${nowIsoUtc8()}] iteration ${iteration} opening omx timeout circuit for ${omxCooldownIterations} iterations (skip until ${omxSkipUntilIteration})`,
-              );
-            }
-          }
-          if (status === 0) {
+      let backlogSkipped = false;
+      for (let attempt = 1; attempt <= retries; attempt += 1) {
+        appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt}/${retries}`);
+        try {
+          const controlStatus = readControlStatus(options.repoRoot, options.targetWorkspace, options.prdPath);
+          const backlogReason = formatBacklogReason(controlStatus.snapshot);
+          if (backlogReason) {
+            appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} skipping omx due to local backlog ${backlogReason}`);
+            backlogSkipped = true;
             break;
           }
-          if (attempt < retries) {
-            const backoff = attempt * 5;
-            appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} retrying after ${backoff}s`);
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, backoff * 1000);
+
+          const task = buildAgentAlgoLlmRalphTask(
+            options.repoRoot,
+            options.targetWorkspace,
+            options.prdPath,
+            controlStatus.snapshotJson,
+          );
+          status = runStableOmx(
+            ['exec', '--full-auto', `$ralph "${task.replaceAll('"', '\\"')}"`],
+            options.repoRoot,
+            options.execTimeoutMs ?? DEFAULT_RALPH_EXEC_TIMEOUT_MS,
+          );
+          consecutiveOmxTimeouts = 0;
+          appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} exit=${status}`);
+        } catch (error) {
+          status = 1;
+          const timeoutLike = isTimeoutLikeError(error);
+          consecutiveOmxTimeouts = timeoutLike ? consecutiveOmxTimeouts + 1 : 0;
+          appendLog(
+            logPath,
+            `[${nowIsoUtc8()}] iteration ${iteration} omx attempt ${attempt} error=${formatError(error)}`,
+          );
+          if (timeoutLike && consecutiveOmxTimeouts >= omxCircuitBreakAfterTimeouts) {
+            omxSkipUntilIteration = iteration + omxCooldownIterations + 1;
+            appendLog(
+              logPath,
+              `[${nowIsoUtc8()}] iteration ${iteration} opening omx timeout circuit for ${omxCooldownIterations} iterations (skip until ${omxSkipUntilIteration})`,
+            );
           }
+        }
+        if (backlogSkipped || status === 0) {
+          break;
+        }
+        if (attempt < retries) {
+          const backoff = attempt * 5;
+          appendLog(logPath, `[${nowIsoUtc8()}] iteration ${iteration} retrying after ${backoff}s`);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, backoff * 1000);
         }
       }
     }
@@ -176,52 +174,6 @@ export function runRalphLoop(options: RalphLoopOptions): number {
   return 0;
 }
 
-function readOmxBacklogReason(targetWorkspace: string, prdPath: string): string | null {
-  try {
-    const rawConfig = JSON.parse(fs.readFileSync(prdPath, 'utf8')) as {
-      queries?: unknown;
-      dataDir?: unknown;
-      stateFile?: unknown;
-    };
-    const queries = Array.isArray(rawConfig.queries)
-      ? rawConfig.queries.map((value) => String(value || '').trim()).filter(Boolean)
-      : [];
-    const dataDir = path.resolve(targetWorkspace, String(rawConfig.dataDir || './interview_data'));
-    const statePath = path.resolve(targetWorkspace, String(rawConfig.stateFile || './interview_data/xhs_miangjing_state.json'));
-    const notesPath = path.resolve(dataDir, 'xhs_notes.json');
-    const notes = fs.existsSync(notesPath)
-      ? JSON.parse(fs.readFileSync(notesPath, 'utf8')) as Array<Record<string, unknown>>
-      : [];
-    const state = fs.existsSync(statePath)
-      ? JSON.parse(fs.readFileSync(statePath, 'utf8')) as { queries?: Record<string, { next_run_after?: unknown }> }
-      : {};
-    const now = Date.now();
-    const dueQueries = queries.filter((query) => {
-      const nextRunAfter = String(state.queries?.[query]?.next_run_after || '').trim();
-      if (!nextRunAfter) {
-        return true;
-      }
-      const nextRunAt = Date.parse(nextRunAfter);
-      return !Number.isFinite(nextRunAt) || nextRunAt <= now;
-    }).length;
-    const pendingHydrate = notes.filter((note) => !String(note.content || '').trim()).length;
-    const pendingComments = notes.filter((note) => {
-      const questions = Array.isArray(note.interview_questions) ? note.interview_questions : [];
-      return !(questions.length > 0 && note.comments != null);
-    }).length;
-    if (
-      dueQueries > DEFAULT_OMX_MAX_DUE_QUERIES ||
-      pendingHydrate > DEFAULT_OMX_MAX_PENDING_HYDRATE ||
-      pendingComments > DEFAULT_OMX_MAX_PENDING_COMMENTS
-    ) {
-      return `due_queries=${dueQueries}, pending_hydrate=${pendingHydrate}, pending_comments=${pendingComments}`;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): number {
   const stamp = buildUtcTimestamp();
   const boundedLogDir = path.resolve(options.targetWorkspace, `.omx/logs/bounded-cycle-node-fallback-${stamp}`);
@@ -233,23 +185,21 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
   fs.writeFileSync(summaryPath, '', 'utf8');
   fs.writeFileSync(summaryTsvPath, '', 'utf8');
   appendLog(logPath, `[${nowIsoUtc8()}] local fallback log_dir=${boundedLogDir}`);
-  const snapshotJson = readControlStatusJson(options.repoRoot, options.targetWorkspace, options.prdPath);
-  const snapshot = parseControlStatusSnapshot(snapshotJson);
-  const operation = chooseFallbackOperation(snapshot);
-  const command: RalphLoopCommand = {
-    label: operation.kind,
-    args: renderRunOperationArgs(operation, options.targetWorkspace, options.prdPath),
-    timeoutMs: resolveLocalCommandTimeoutMs(operation.kind),
-  };
-  const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
-  const renderedCommand = renderCommand('node', command.args);
-  const startedAt = new Date().toISOString();
-
-  fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
-  appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
-
-  let status = 1;
   try {
+    const controlStatus = readControlStatus(options.repoRoot, options.targetWorkspace, options.prdPath);
+    const operation = chooseFallbackOperation(controlStatus.snapshot);
+    const command: RalphLoopCommand = {
+      label: operation.kind,
+      args: renderRunOperationArgs(operation, options.targetWorkspace, options.prdPath),
+      timeoutMs: resolveLocalCommandTimeoutMs(operation.kind),
+    };
+    const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
+    const renderedCommand = renderCommand('node', command.args);
+    const startedAt = new Date().toISOString();
+
+    fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
+    appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
+
     const result = runProcess('node', command.args, {
       cwd: options.repoRoot,
       timeoutMs: command.timeoutMs ?? DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
@@ -258,14 +208,24 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
     appendFile(logFile, result.stderr);
     process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
-    status = result.status;
+    fs.appendFileSync(summaryTsvPath, `${command.label}\t${result.status}\t${logFile}\n`, 'utf8');
+    appendFile(summaryPath, `[${new Date().toISOString()}] END ${command.label} exit=${result.status} log=${logFile}\n`);
+    if (result.status !== 0) {
+      failures.push(command.label);
+      appendFile(summaryPath, `${readTail(logFile, 40)}\n`);
+    }
   } catch (error) {
-    appendFile(logFile, `${formatError(error)}\n`);
-  }
+    const command = buildControlStatusCommand(options.targetWorkspace, options.prdPath);
+    const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
+    const renderedCommand = renderCommand('node', command.args);
+    const startedAt = new Date().toISOString();
+    const formattedError = formatError(error);
 
-  fs.appendFileSync(summaryTsvPath, `${command.label}\t${status}\t${logFile}\n`, 'utf8');
-  appendFile(summaryPath, `[${new Date().toISOString()}] END ${command.label} exit=${status} log=${logFile}\n`);
-  if (status !== 0) {
+    fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
+    appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
+    appendFile(logFile, `${formattedError}\n`);
+    fs.appendFileSync(summaryTsvPath, `${command.label}\t1\t${logFile}\n`, 'utf8');
+    appendFile(summaryPath, `[${new Date().toISOString()}] END ${command.label} exit=1 log=${logFile}\n`);
     failures.push(command.label);
     appendFile(summaryPath, `${readTail(logFile, 40)}\n`);
   }
@@ -274,19 +234,47 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
   return failures.length === 0 ? 0 : 1;
 }
 
-function readControlStatusJson(repoRoot: string, targetWorkspace: string, prdPath: string): string {
-  const result = runProcess('node', [
-    '--import',
-    'tsx',
-    'src/cli.ts',
-    'control-status',
-    '--workspace',
-    targetWorkspace,
-    '--prd',
-    prdPath,
-  ], {
-    cwd: repoRoot,
+function buildControlStatusCommand(targetWorkspace: string, prdPath: string): RalphLoopCommand {
+  return {
+    label: 'control-status',
+    args: [
+      '--import',
+      'tsx',
+      'src/cli.ts',
+      'control-status',
+      '--workspace',
+      targetWorkspace,
+      '--prd',
+      prdPath,
+    ],
     timeoutMs: DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
+  };
+}
+
+function readControlStatus(repoRoot: string, targetWorkspace: string, prdPath: string): {
+  snapshotJson: string;
+  snapshot: ControlStatusSnapshot;
+} {
+  const snapshotJson = readControlStatusJson(repoRoot, targetWorkspace, prdPath);
+  return {
+    snapshotJson,
+    snapshot: parseControlStatusSnapshot(snapshotJson),
+  };
+}
+
+function formatBacklogReason(snapshot: ControlStatusSnapshot): string | null {
+  const { backlog } = snapshot;
+  if (backlog.due_queries > 0 || backlog.pending_hydrate > 0 || backlog.pending_comments > 0) {
+    return `due_queries=${backlog.due_queries}, pending_hydrate=${backlog.pending_hydrate}, pending_comments=${backlog.pending_comments}`;
+  }
+  return null;
+}
+
+function readControlStatusJson(repoRoot: string, targetWorkspace: string, prdPath: string): string {
+  const command = buildControlStatusCommand(targetWorkspace, prdPath);
+  const result = runProcess('node', command.args, {
+    cwd: repoRoot,
+    timeoutMs: command.timeoutMs,
   });
 
   if (result.status !== 0) {

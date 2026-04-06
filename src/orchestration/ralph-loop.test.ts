@@ -55,6 +55,34 @@ function writeFixturePrd(workspace: string): void {
   );
 }
 
+function writeWorkspaceStateFixture(
+  workspace: string,
+  {
+    queries = [],
+    notes = [],
+    stateQueries = {},
+  }: {
+    queries?: string[];
+    notes?: Array<Record<string, unknown>>;
+    stateQueries?: Record<string, unknown>;
+  },
+): void {
+  const dataDir = path.join(workspace, 'interview_data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'interviewops.xhs.json'), JSON.stringify({
+    source: 'xiaohongshu',
+    queries,
+    dataDir: './interview_data',
+    stateFile: './interview_data/xhs_agent_algo_feb2026_state.json',
+  }, null, 2), 'utf8');
+  fs.writeFileSync(path.join(dataDir, 'xhs_notes.json'), JSON.stringify(notes, null, 2), 'utf8');
+  fs.writeFileSync(path.join(dataDir, 'xhs_agent_algo_feb2026_state.json'), JSON.stringify({
+    version: 1,
+    updated_at: '2026-04-03T00:00:00+08:00',
+    queries: stateQueries,
+  }, null, 2), 'utf8');
+}
+
 describe('buildAgentAlgoLlmRalphTask', () => {
   it('matches the one-operation prompt wording from the plan', () => {
     const snapshotJson = JSON.stringify({
@@ -168,6 +196,17 @@ describe('runRalphLoop', () => {
 
     vi.mocked(runStableOmx).mockReturnValueOnce(1);
     vi.mocked(runProcess)
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 0,
+          pending_comments: 0,
+          notes_total: 1,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
       .mockReturnValueOnce({
         stdout: `${JSON.stringify(buildControlStatus(workspace, {
           due_queries: 0,
@@ -335,7 +374,7 @@ describe('runRalphLoop', () => {
     vi.mocked(runProcess)
       .mockReturnValueOnce({
         stdout: `${JSON.stringify(buildControlStatus(workspace, {
-          due_queries: 1,
+          due_queries: 0,
           pending_hydrate: 0,
           pending_comments: 0,
           notes_total: 1,
@@ -407,7 +446,7 @@ describe('runRalphLoop', () => {
       stdout: `${JSON.stringify(buildControlStatus(workspace, {
         due_queries: 0,
         pending_hydrate: 0,
-        pending_comments: 1,
+        pending_comments: 0,
         notes_total: 1,
         strict_export_ready: false,
       }), null, 2)}\n`,
@@ -419,7 +458,7 @@ describe('runRalphLoop', () => {
       repoRoot,
       targetWorkspace: workspace,
       prdPath: path.join(workspace, 'interviewops.xhs.json'),
-      iterations: 4,
+      iterations: 5,
       sleepSeconds: 1,
       autoCommit: false,
       omxCooldownIterations: 2,
@@ -432,7 +471,8 @@ describe('runRalphLoop', () => {
     expect(status).toBe(0);
     expect(log).toContain('opening omx timeout circuit for 2 iterations');
     expect(log).toContain('iteration 3 skipping omx due to timeout cooldown');
-    expect(log).toContain('iteration 4 omx attempt 1/1');
+    expect(log).toContain('iteration 4 skipping omx due to timeout cooldown');
+    expect(log).toContain('iteration 5 omx attempt 1/1');
     expect(runStableOmx).toHaveBeenCalledTimes(3);
   });
 
@@ -482,6 +522,17 @@ describe('runRalphLoop', () => {
         stderr: '',
         status: 0,
       })
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 1,
+          pending_hydrate: 1,
+          pending_comments: 1,
+          notes_total: 1,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
       .mockReturnValueOnce({ stdout: 'ok\n', stderr: '', status: 0 });
 
     const status = runRalphLoop({
@@ -501,7 +552,7 @@ describe('runRalphLoop', () => {
     expect(log).toContain('skipping omx due to local backlog due_queries=1, pending_hydrate=1, pending_comments=1');
     expect(log).toContain('starting local fallback');
     expect(runProcess).toHaveBeenNthCalledWith(
-      2,
+      3,
       'node',
       [
         '--import',
@@ -520,5 +571,149 @@ describe('runRalphLoop', () => {
       ],
       expect.objectContaining({ cwd: repoRoot, timeoutMs: 15 * 60 * 1000 }),
     );
+  });
+
+  it('does not skip omx for notes in cooldown or for notes with comments but no interview questions', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loop-repo-'));
+    const workspace = path.join(repoRoot, 'workspaces/xhs-agent-algo-feb2026');
+    fs.mkdirSync(workspace, { recursive: true });
+    writeWorkspaceStateFixture(workspace, {
+      queries: [],
+      notes: [
+        {
+          note_id: 'note-1',
+          url: 'https://www.xiaohongshu.com/explore/note-1',
+          title: 'Agent 面经',
+          content: null,
+          detail_next_attempt_after: '2099-01-01T00:00:00+08:00',
+          interview_questions: [],
+          comments: [],
+          comment_next_attempt_after: '2099-01-01T00:00:00+08:00',
+        },
+      ],
+    });
+
+    vi.mocked(runStableOmx).mockReturnValueOnce(0);
+    vi.mocked(runProcess).mockReturnValueOnce({
+      stdout: `${JSON.stringify(buildControlStatus(workspace, {
+        due_queries: 0,
+        pending_hydrate: 0,
+        pending_comments: 0,
+        notes_total: 1,
+        strict_export_ready: false,
+      }), null, 2)}\n`,
+      stderr: '',
+      status: 0,
+    });
+
+    const status = runRalphLoop({
+      repoRoot,
+      targetWorkspace: workspace,
+      prdPath: path.join(workspace, 'interviewops.xhs.json'),
+      iterations: 1,
+      sleepSeconds: 1,
+      autoCommit: false,
+    });
+
+    const logPath = path.join(workspace, 'reports/xhs-agent-algo-feb2026/ralph-loop.log');
+    const log = fs.readFileSync(logPath, 'utf8');
+
+    expect(status).toBe(0);
+    expect(runStableOmx).toHaveBeenCalledTimes(1);
+    expect(log).not.toContain('skipping omx due to local backlog');
+    expect(log).not.toContain('starting local fallback');
+  });
+
+  it('resets the timeout circuit counter after a non-timeout omx failure', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loop-repo-'));
+    const workspace = path.join(repoRoot, 'workspaces/xhs-agent-algo-feb2026');
+    fs.mkdirSync(workspace, { recursive: true });
+
+    vi.mocked(runStableOmx)
+      .mockImplementationOnce(() => {
+        throw new Error('spawnSync omx ETIMEDOUT');
+      })
+      .mockReturnValueOnce(1)
+      .mockImplementationOnce(() => {
+        throw new Error('spawnSync omx ETIMEDOUT');
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('spawnSync omx ETIMEDOUT');
+      });
+    vi.mocked(runProcess).mockReturnValue({
+      stdout: `${JSON.stringify(buildControlStatus(workspace, {
+        due_queries: 0,
+        pending_hydrate: 0,
+        pending_comments: 0,
+        notes_total: 1,
+        strict_export_ready: false,
+      }), null, 2)}\n`,
+      stderr: '',
+      status: 0,
+    });
+
+    const status = runRalphLoop({
+      repoRoot,
+      targetWorkspace: workspace,
+      prdPath: path.join(workspace, 'interviewops.xhs.json'),
+      iterations: 5,
+      sleepSeconds: 1,
+      autoCommit: false,
+      omxCooldownIterations: 1,
+      omxCircuitBreakAfterTimeouts: 2,
+    });
+
+    const logPath = path.join(workspace, 'reports/xhs-agent-algo-feb2026/ralph-loop.log');
+    const log = fs.readFileSync(logPath, 'utf8');
+
+    expect(status).toBe(0);
+    expect(log).not.toContain('iteration 3 opening omx timeout circuit');
+    expect(log).toContain('iteration 4 opening omx timeout circuit for 1 iterations');
+    expect(log).toContain('iteration 5 skipping omx due to timeout cooldown');
+  });
+
+  it('records a bounded fallback failure when control-status cannot be read', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loop-repo-'));
+    const workspace = path.join(repoRoot, 'workspaces/xhs-agent-algo-feb2026');
+    fs.mkdirSync(workspace, { recursive: true });
+    writeFixturePrd(workspace);
+
+    vi.mocked(runStableOmx).mockReturnValueOnce(1);
+    vi.mocked(runProcess)
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 0,
+          pending_comments: 0,
+          notes_total: 0,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
+      .mockReturnValueOnce({
+        stdout: '',
+        stderr: 'control plane unavailable\n',
+        status: 1,
+      });
+
+    const status = runRalphLoop({
+      repoRoot,
+      targetWorkspace: workspace,
+      prdPath: path.join(workspace, 'interviewops.xhs.json'),
+      iterations: 1,
+      sleepSeconds: 1,
+      autoCommit: false,
+    });
+
+    const fallbackDir = fs.readdirSync(path.join(workspace, '.omx/logs')).find((entry) =>
+      entry.startsWith('bounded-cycle-node-fallback-'),
+    );
+    const summary = fs.readFileSync(path.join(workspace, '.omx/logs', String(fallbackDir), 'summary.txt'), 'utf8');
+
+    expect(status).toBe(1);
+    expect(summary).toContain('END control-status exit=1');
+    expect(summary).toContain('control-status failed with status 1');
+    expect(summary).toContain('DONE status=1 failures=control-status');
   });
 });
