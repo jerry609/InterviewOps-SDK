@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { ControlPlaneOperation } from './control-plane/contracts.js';
 import { runRalphLoop } from './orchestration/ralph-loop.js';
 import { runStableOmx } from './orchestration/omx.js';
 import { InterviewOpsPipeline } from './pipeline.js';
@@ -30,6 +31,8 @@ Usage:
   interviewops stats [--workspace PATH] [--prd PATH]
   interviewops validate [--workspace PATH] [--prd PATH]
   interviewops doctor [--workspace PATH] [--prd PATH]
+  interviewops control-status [--workspace PATH] [--prd PATH]
+  interviewops run-operation <kind> [--workspace PATH] [--prd PATH] [--limit N] --reason TEXT
   interviewops ralph <task> [--workspace PATH] [--full-auto]
   interviewops ralph-loop [iterations] [--workspace PATH] [--prd PATH] [--sleep-seconds N] [--auto-commit]
   interviewops omx-safe <args...>
@@ -51,6 +54,8 @@ Examples:
   interviewops overview
   interviewops status
   interviewops stats
+  interviewops control-status
+  interviewops run-operation validate --reason "periodic data integrity check"
   interviewops export
   interviewops cycle --auto-commit
   interviewops nightly 8 --workspace /data/interviewops
@@ -122,6 +127,50 @@ function resolvePackageRoot(): string {
   return path.resolve(path.dirname(current), '..');
 }
 
+function parseRequiredReason(parsed: ParsedCli): string {
+  const reason = String(parsed.options.reason || '').trim();
+  if (!reason) {
+    throw new Error('run-operation requires --reason TEXT');
+  }
+  return reason;
+}
+
+function parseOptionalLimit(parsed: ParsedCli): number | undefined {
+  if (!parsed.options.limit) {
+    return undefined;
+  }
+
+  const limit = Number(parsed.options.limit);
+  if (!Number.isFinite(limit)) {
+    throw new Error('--limit must be a finite number');
+  }
+  return limit;
+}
+
+function parseControlPlaneOperation(parsed: ParsedCli): ControlPlaneOperation {
+  const kind = parsed.positional[0];
+  const reason = parseRequiredReason(parsed);
+  const limit = parseOptionalLimit(parsed);
+
+  switch (kind) {
+    case 'harvest':
+      return limit === undefined
+        ? { kind, reason }
+        : { kind, reason, query_limit: limit };
+    case 'hydrate':
+    case 'comments':
+      return limit === undefined
+        ? { kind, reason }
+        : { kind, reason, limit };
+    case 'normalize':
+    case 'export':
+    case 'validate':
+      return { kind, reason };
+    default:
+      throw new Error(`unsupported operation kind: ${String(kind || '')}`);
+  }
+}
+
 function initWorkspace(parsed: ParsedCli): void {
   const workspace = path.resolve(String(parsed.options.workspace || process.cwd()));
   const destination = path.resolve(workspace, 'interviewops.xhs.json');
@@ -191,6 +240,9 @@ async function main(): Promise<void> {
     case 'status':
       process.stdout.write(`${JSON.stringify(pipeline.status(), null, 2)}\n`);
       break;
+    case 'control-status':
+      process.stdout.write(`${JSON.stringify(pipeline.readControlPlaneSnapshot(), null, 2)}\n`);
+      break;
     case 'seed-import': {
       const sourceNotesPath = String(parsed.options['source-notes'] || pipeline.config.seedSourceNotesPath || '').trim();
       if (!sourceNotesPath) {
@@ -229,6 +281,12 @@ async function main(): Promise<void> {
       pipeline.validate();
       process.stdout.write('validation ok\n');
       break;
+    case 'run-operation': {
+      const operation = parseControlPlaneOperation(parsed);
+      const record = await pipeline.runControlPlaneOperation(operation);
+      process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+      break;
+    }
     case 'export': {
       const rows = pipeline.exportAll();
       process.stdout.write(`${JSON.stringify({ questions: rows.length }, null, 2)}\n`);
