@@ -1,4 +1,4 @@
-import type { PurchaseLinkSignal, ScopeCandidate, SellerAuthorSummary, SellerSignal, SellerWhitelistConfig, SellerWhitelistDecision, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
+import type { PurchaseLinkSignal, QuestionExtractMode, ScopeCandidate, SellerAuthorSummary, SellerSignal, SellerWhitelistConfig, SellerWhitelistDecision, XhsNote, XhsQuestionRow, XhsStats } from './types.js';
 
 const COMPANY_NAMES = [
   '腾讯', '字节', '美团', '阿里', '阿里云', '通义', '蚂蚁', '京东', '百度', '快手',
@@ -31,6 +31,34 @@ const PURCHASE_TEXT_PATTERNS = [
   { tag: '购买链接', regex: /购买链接|商品链接|下单链接|店铺链接|拍下链接/gi, weight: 0.45 },
   { tag: '电商平台', regex: /淘宝|天猫|京东|拼多多|微店/gi, weight: 0.25 },
   { tag: '站内导购', regex: /橱窗|小黄车|店铺首页|商品卡|立即购买/gi, weight: 0.25 },
+];
+
+const QUESTION_HINT_PATTERNS = [
+  /^问/,
+  /面试官问/,
+  /八股/,
+  /算法题/,
+  /介绍一下/,
+  /详细讲讲/,
+  /讲讲/,
+  /说一下/,
+  /如何/,
+  /怎么/,
+  /为什么/,
+  /什么是/,
+  /什么/,
+  /是否/,
+  /有没有/,
+  /哪些/,
+  /如果/,
+  /若要/,
+  /[？?]/,
+];
+
+const STRICT_QUESTION_REJECT_PATTERNS = [
+  /(当前状态|上下文够了|实际使用时候|根据小标题|代码变更|决策记录|template 调用工具)/i,
+  /^(什么，|什么选|什么没做|怎么设定的；|怎么设计的；)/,
+  /^[^，。！？:：]{0,10}[；;][^，。！？:：]{0,16}$/,
 ];
 
 export function nowIsoUtc8(): string {
@@ -69,13 +97,22 @@ export function parseApproxPublishedAt(value: string, reference = new Date()): D
   return null;
 }
 
-export function normalizeQuestion(text: string): string {
-  return text
+export function normalizeQuestion(text: string, mode: QuestionExtractMode = 'loose'): string {
+  let value = text
     .replace(/\s+/g, ' ')
     .replace(/^Q[:：]\s*/i, '')
     .replace(/^\d+[、.](?!\d)\s*/, '')
     .replace(/^[0-9]️⃣\s*/, '')
     .trim();
+
+  if (mode === 'strict') {
+    value = value
+      .replace(/^(?:[（(][^()（）]{4,80}[)）]\s*)+/u, '')
+      .replace(/^(提问第[一二三四五六七八九十0-9]+个项目|项目追问|追问|补充追问|反问)[:：]\s*/u, '')
+      .trim();
+  }
+
+  return value;
 }
 
 function splitQuestionCandidates(line: string): string[] {
@@ -84,15 +121,40 @@ function splitQuestionCandidates(line: string): string[] {
       .split(/[？?]/)
       .map((part) => part.trim())
       .filter(Boolean)
-      .map((part) => (/[？?]$/.test(part) ? part : `${part}`));
+      .map((part) => part.trim());
   }
 
-  const splitKeys = ['系统介绍一下', '详细讲讲', '什么是', '为什么', '有没有', '说一下', '讲讲', '如何', '怎么', '什么', '哪些', '是否', '如果', '若要'];
-  const pattern = new RegExp(`(?=(${splitKeys.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}))`, 'g');
-  return line.split(pattern).map((part) => part.trim()).filter(Boolean);
+  if (/[；;。]/.test(line)) {
+    return line
+      .split(/[；;。]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  return [line.trim()].filter(Boolean);
 }
 
-export function extractQuestions(text: string): string[] {
+function looksLikeQuestion(text: string): boolean {
+  return QUESTION_HINT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function isQuestionUsable(text: string, mode: QuestionExtractMode = 'loose'): boolean {
+  const value = normalizeQuestion(text, mode);
+  if (!value) return false;
+  if (value.length < (mode === 'strict' ? 8 : 6)) return false;
+  if (mode === 'strict' && value.length > 160) return false;
+  if (!looksLikeQuestion(value)) return false;
+  if (mode === 'strict' && STRICT_QUESTION_REJECT_PATTERNS.some((pattern) => pattern.test(value))) {
+    return false;
+  }
+  return true;
+}
+
+export function extractQuestions(
+  text: string,
+  options: { mode?: QuestionExtractMode } = {},
+): string[] {
+  const mode = options.mode || 'loose';
   const normalized = String(text || '')
     .replace(/\s+/g, ' ')
     .replace(/Q[:：]\s*/g, '\nQ: ')
@@ -123,23 +185,8 @@ export function extractQuestions(text: string): string[] {
     }
 
     for (const candidate of splitQuestionCandidates(line)) {
-      const value = normalizeQuestion(candidate);
-      const looksLikeQuestion =
-        value.startsWith('问') ||
-        value.includes('面试官问') ||
-        value.includes('八股') ||
-        value.includes('算法题') ||
-        value.includes('讲讲') ||
-        value.includes('说一下') ||
-        value.includes('如何') ||
-        value.includes('怎么') ||
-        value.includes('为什么') ||
-        value.includes('什么') ||
-        value.includes('是否') ||
-        value.includes('有没有') ||
-        /[？?]/.test(value);
-
-      if (looksLikeQuestion && value.length >= 6 && !seen.has(value)) {
+      const value = normalizeQuestion(candidate, mode);
+      if (isQuestionUsable(value, mode) && !seen.has(value)) {
         seen.add(value);
         out.push(value);
       }
@@ -147,6 +194,10 @@ export function extractQuestions(text: string): string[] {
   }
 
   return out;
+}
+
+export function extractQuestionsStrict(text: string): string[] {
+  return extractQuestions(text, { mode: 'strict' });
 }
 
 export function parseCompany(text: string): string {

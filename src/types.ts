@@ -5,6 +5,8 @@ export type XhsComment = {
   time?: string | null;
 };
 
+export type QuestionExtractMode = 'loose' | 'strict';
+
 export type XhsNote = {
   note_id: string;
   url: string;
@@ -23,6 +25,9 @@ export type XhsNote = {
   crawl_meta?: Record<string, unknown> | null;
   content?: string | null;
   detail_fetched_at?: string | null;
+  detail_error_runs?: number | null;
+  detail_last_error?: string | null;
+  detail_next_attempt_after?: string | null;
   seller_flag?: boolean | null;
   seller_whitelisted?: boolean | null;
   seller_whitelist_reason?: string | null;
@@ -32,12 +37,23 @@ export type XhsNote = {
   purchase_links?: string[] | null;
   purchase_link_tags?: string[] | null;
   purchase_link_confidence?: number | null;
+  comment_error_runs?: number | null;
+  comment_last_error?: string | null;
+  comment_next_attempt_after?: string | null;
 };
 
 export type QueryState = {
   last_run_at: string;
   newest_published_at: string | null;
   last_result_count: number;
+  added_note_count?: number;
+  duplicate_note_count?: number;
+  empty_runs?: number;
+  error_runs?: number;
+  timeout_runs?: number;
+  last_error_kind?: string | null;
+  search_timeout_seconds?: number;
+  next_run_after?: string | null;
   last_error?: string;
 };
 
@@ -71,6 +87,13 @@ export type XhsState = {
   operations?: Partial<Record<PipelineStageName, PipelineOperationRecord>>;
   detail_hydration?: Record<string, unknown>;
   comment_enrichment?: Record<string, unknown>;
+  seed_import?: {
+    source_path: string;
+    source_signature: string;
+    source_notes: number;
+    merged_total: number;
+    last_imported_at: string;
+  };
 };
 
 export type XhsStats = {
@@ -166,6 +189,17 @@ export type XhsPrdConfig = {
   harvestEvery?: number;
   sleepMinSeconds?: number;
   sleepMaxSeconds?: number;
+  maxQueriesPerHarvest?: number;
+  querySuccessCooldownMinutes?: number;
+  queryDuplicateCooldownMinutes?: number;
+  queryEmptyCooldownMinutes?: number;
+  queryErrorCooldownMinutes?: number;
+  queryTimeoutCooldownMinutes?: number;
+  queryTimeoutEscalationFactor?: number;
+  queryTimeoutMaxSeconds?: number;
+  timeoutQuerySlotCost?: number;
+  nightlyMaxConsecutiveFailures?: number;
+  nightlyFailureBackoffSeconds?: number;
 };
 
 export type PipelineOptions = {
@@ -198,6 +232,14 @@ export type PipelineStatus = {
     title_keywords: number;
     urls: number;
   };
+};
+
+export type ScopeSnapshot = {
+  scope: NonNullable<XhsPrdConfig['scopeFilter']>;
+  total_candidates: number;
+  strong: number;
+  medium: number;
+  rows: ScopeCandidate[];
 };
 
 export type ScopeCandidate = {

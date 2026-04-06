@@ -4,20 +4,32 @@
   "description": "SDK and CLI for orchestrating OpenCLI + OMX interview collection pipelines.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "interviewops": "dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "examples",
+    "schemas",
+    "templates"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src/heuristics.test.ts src/orchestration/omx.test.ts src/adapters/xiaohongshu.test.ts"
+    "test": "vitest run src/heuristics.test.ts src/process.test.ts src/cli.test.ts src/pipeline.test.ts src/orchestration/omx.test.ts src/orchestration/ralph-loop.test.ts src/adapters/opencli.test.ts src/adapters/xiaohongshu.test.ts"
   },
   "keywords": [
     "sdk",

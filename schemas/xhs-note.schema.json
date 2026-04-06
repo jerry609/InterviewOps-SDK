@@ -20,10 +20,30 @@
     "last_seen_at": { "type": "string" },
     "crawl_source": { "type": "string" },
     "content": { "type": ["string", "null"] },
+    "detail_fetched_at": { "type": ["string", "null"] },
+    "detail_error_runs": { "type": ["integer", "null"] },
+    "detail_last_error": { "type": ["string", "null"] },
+    "detail_next_attempt_after": { "type": ["string", "null"] },
     "interview_questions": {
       "type": ["array", "null"],
       "items": { "type": "string" }
     },
+    "comments": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "author": { "type": ["string", "null"] },
+          "content": { "type": ["string", "null"] },
+          "likes": { "type": ["string", "number", "null"] },
+          "time": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "comment_count": { "type": ["integer", "null"] },
+    "comment_error_runs": { "type": ["integer", "null"] },
+    "comment_last_error": { "type": ["string", "null"] },
+    "comment_next_attempt_after": { "type": ["string", "null"] },
     "seller_flag": { "type": ["boolean", "null"] },
     "seller_tags": {
       "type": ["array", "null"],

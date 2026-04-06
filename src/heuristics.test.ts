@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractQuestions, inferTopics, parseApproxPublishedAt, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
+import { applySellerWhitelist, buildScopeCandidates, collectStats, detectPurchaseLinks, detectSellerSignals, extractQuestions, extractQuestionsStrict, inferTopics, isQuestionUsable, parseApproxPublishedAt, parseCompany, parseRounds, summarizeSellerAuthors } from './heuristics.js';
 import type { XhsNote } from './types.js';
 
 describe('heuristics', () => {
@@ -8,6 +8,24 @@ describe('heuristics', () => {
     const questions = extractQuestions('一面 1. 讲讲 transformer？2. 如何做 rag 优化 3. 项目里为什么这么设计');
     expect(questions.length).toBeGreaterThanOrEqual(2);
     expect(questions.some((item) => item.includes('transformer'))).toBe(true);
+  });
+
+  it('filters noisy question fragments in strict mode while keeping usable prompts', () => {
+    const text = [
+      '1. （现在上下文够了，实际使用时候根据小标题+元数据已经满足实际业务）介绍一下 Bert，Bert mask 怎么起作用的',
+      '2. 为什么现在都在用 react 的 template 调用工具',
+      '3. 怎么设定的；sse',
+      '4. 讲讲 RAG 的检索具体怎么做',
+    ].join('\n');
+
+    const loose = extractQuestions(text);
+    const strict = extractQuestionsStrict(text);
+
+    expect(loose).toContain('为什么现在都在用 react 的 template 调用工具');
+    expect(strict).not.toContain('为什么现在都在用 react 的 template 调用工具');
+    expect(strict.some((item) => item.includes('Bert mask 怎么起作用'))).toBe(true);
+    expect(strict).toContain('讲讲 RAG 的检索具体怎么做');
+    expect(isQuestionUsable('怎么设定的；sse', 'strict')).toBe(false);
   });
 
   it('detects seller signals conservatively', () => {

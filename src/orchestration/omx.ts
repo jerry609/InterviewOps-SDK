@@ -12,20 +12,23 @@ export const OMX_PROXY_ENV_KEYS = [
   'ALL_PROXY',
 ] as const;
 
-export function buildStableOmxEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const next: NodeJS.ProcessEnv = { ...env, USE_OMX_EXPLORE_CMD: '0' };
+type ProcessEnvLike = Record<string, string | undefined>;
+
+export function buildStableOmxEnv(env: ProcessEnvLike = process.env): ProcessEnvLike {
+  const next: ProcessEnvLike = { ...env, USE_OMX_EXPLORE_CMD: '0' };
   for (const key of OMX_PROXY_ENV_KEYS) {
     delete next[key];
   }
   return next;
 }
 
-export function runStableOmx(args: string[], workspace: string): number {
+export function runStableOmx(args: string[], workspace: string, timeoutMs?: number): number {
   fs.mkdirSync(path.resolve(workspace, '.omx/state'), { recursive: true });
   const binary = process.env.INTERVIEWOPS_OMX_BINARY || 'omx';
   const result = runProcess(binary, args, {
     cwd: workspace,
     env: buildStableOmxEnv(),
+    timeoutMs,
   });
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);

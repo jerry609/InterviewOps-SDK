@@ -30,7 +30,8 @@ For Xiaohongshu interview notes, the SDK can:
 5. mark likely seller / lead-gen accounts or notes
 6. export:
    - `xhs_notes.json`
-   - `xhs_questions.json`
+   - `xhs_questions.json` (loose / compatibility)
+   - `xhs_questions_strict.json` (default reporting set)
    - topic buckets
    - company / round summary
    - filterable HTML overview
@@ -59,6 +60,12 @@ External prerequisites:
 - `opencli`
 - `omx`
 - Chrome logged into `xiaohongshu.com`
+
+Package notes:
+
+- The published SDK is `ESM-only`
+- The primary supported surface is the bundled CLI plus ESM imports
+- TypeScript consumers should use a Node runtime config (`moduleResolution: "Node16"` or `"NodeNext"`)
 
 ## CLI
 
@@ -128,8 +135,8 @@ Command notes:
 - `hydrate`: fills note detail content only
 - `comments`: enriches comments only
 - `normalize`: refreshes question extraction and seller flags only
-- `questions`: rebuilds `xhs_questions*.json` only
-- `overview`: rebuilds overview and seller reports only
+- `questions`: rebuilds both loose and strict `xhs_questions*.json` outputs
+- `overview`: rebuilds strict overview HTML/summary plus seller reports
 - `status`: shows current stats plus last recorded stage runs
 - `doctor`: verifies `node`, `opencli`, `omx`, config path, data dir, and report dir
 - `export`: rebuilds question/topic/overview/seller outputs from existing note data
@@ -191,9 +198,13 @@ The SDK writes into the current workspace:
 interview_data/
   xhs_notes.json
   xhs_questions.json
+  xhs_questions_strict.json
   xhs_questions_nlp.json
+  xhs_questions_nlp_strict.json
   xhs_questions_backend.json
+  xhs_questions_backend_strict.json
   xhs_questions_algo.json
+  xhs_questions_algo_strict.json
   company_round_summary.json
 reports/xhs-miangjing/
   index.html
@@ -210,6 +221,12 @@ templates/
   interview-note-template.tex
   interview-note-template.pdf
 ```
+
+Default reporting behavior:
+
+- `xhs_questions.json` and `xhs_questions_{topic}.json` stay as loose compatibility exports
+- `xhs_questions_strict.json` and `xhs_questions_{topic}_strict.json` are the cleaned question-bank exports
+- `index.html`, topic HTML files, and `company_round_summary.json` default to the strict set
 
 ## Workspace Init
 
