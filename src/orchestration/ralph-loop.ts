@@ -185,21 +185,30 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
   fs.writeFileSync(summaryPath, '', 'utf8');
   fs.writeFileSync(summaryTsvPath, '', 'utf8');
   appendLog(logPath, `[${nowIsoUtc8()}] local fallback log_dir=${boundedLogDir}`);
+  let command: RalphLoopCommand | null = null;
   try {
     const controlStatus = readControlStatus(options.repoRoot, options.targetWorkspace, options.prdPath);
     const operation = chooseFallbackOperation(controlStatus.snapshot);
-    const command: RalphLoopCommand = {
+    command = {
       label: operation.kind,
       args: renderRunOperationArgs(operation, options.targetWorkspace, options.prdPath),
       timeoutMs: resolveLocalCommandTimeoutMs(operation.kind),
     };
-    const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
-    const renderedCommand = renderCommand('node', command.args);
-    const startedAt = new Date().toISOString();
+  } catch (error) {
+    const command = buildControlStatusCommand(options.targetWorkspace, options.prdPath);
+    recordBoundedFailure(command, boundedLogDir, summaryPath, summaryTsvPath, failures, error);
+    appendFile(summaryPath, `DONE status=1 failures=${failures.join(',') || 'none'}\n`);
+    return 1;
+  }
 
-    fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
-    appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
+  const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
+  const renderedCommand = renderCommand('node', command.args);
+  const startedAt = new Date().toISOString();
 
+  fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
+  appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
+
+  try {
     const result = runProcess('node', command.args, {
       cwd: options.repoRoot,
       timeoutMs: command.timeoutMs ?? DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
@@ -215,15 +224,7 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
       appendFile(summaryPath, `${readTail(logFile, 40)}\n`);
     }
   } catch (error) {
-    const command = buildControlStatusCommand(options.targetWorkspace, options.prdPath);
-    const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
-    const renderedCommand = renderCommand('node', command.args);
-    const startedAt = new Date().toISOString();
-    const formattedError = formatError(error);
-
-    fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
-    appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
-    appendFile(logFile, `${formattedError}\n`);
+    appendFile(logFile, `${formatError(error)}\n`);
     fs.appendFileSync(summaryTsvPath, `${command.label}\t1\t${logFile}\n`, 'utf8');
     appendFile(summaryPath, `[${new Date().toISOString()}] END ${command.label} exit=1 log=${logFile}\n`);
     failures.push(command.label);
@@ -232,6 +233,28 @@ function runLocalBoundedCycle(options: RalphLoopOptions, logPath: string): numbe
 
   appendFile(summaryPath, `DONE status=${failures.length === 0 ? 0 : 1} failures=${failures.join(',') || 'none'}\n`);
   return failures.length === 0 ? 0 : 1;
+}
+
+function recordBoundedFailure(
+  command: RalphLoopCommand,
+  boundedLogDir: string,
+  summaryPath: string,
+  summaryTsvPath: string,
+  failures: string[],
+  error: unknown,
+): void {
+  const logFile = path.resolve(boundedLogDir, `1-${command.label}.log`);
+  const renderedCommand = renderCommand('node', command.args);
+  const startedAt = new Date().toISOString();
+  const formattedError = formatError(error);
+
+  fs.writeFileSync(logFile, `COMMAND: ${renderedCommand}\n\n`, 'utf8');
+  appendFile(summaryPath, `[${startedAt}] START 1/1 ${command.label}\n${renderedCommand}\n`);
+  appendFile(logFile, `${formattedError}\n`);
+  fs.appendFileSync(summaryTsvPath, `${command.label}\t1\t${logFile}\n`, 'utf8');
+  appendFile(summaryPath, `[${new Date().toISOString()}] END ${command.label} exit=1 log=${logFile}\n`);
+  failures.push(command.label);
+  appendFile(summaryPath, `${readTail(logFile, 40)}\n`);
 }
 
 function buildControlStatusCommand(targetWorkspace: string, prdPath: string): RalphLoopCommand {

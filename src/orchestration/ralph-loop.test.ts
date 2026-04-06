@@ -716,4 +716,61 @@ describe('runRalphLoop', () => {
     expect(summary).toContain('control-status failed with status 1');
     expect(summary).toContain('DONE status=1 failures=control-status');
   });
+
+  it('records the selected operation label when local run-operation throws', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loop-repo-'));
+    const workspace = path.join(repoRoot, 'workspaces/xhs-agent-algo-feb2026');
+    fs.mkdirSync(workspace, { recursive: true });
+    writeFixturePrd(workspace);
+
+    vi.mocked(runStableOmx).mockReturnValueOnce(1);
+    vi.mocked(runProcess)
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 0,
+          pending_comments: 0,
+          notes_total: 0,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
+      .mockReturnValueOnce({
+        stdout: `${JSON.stringify(buildControlStatus(workspace, {
+          due_queries: 0,
+          pending_hydrate: 1,
+          pending_comments: 0,
+          notes_total: 1,
+          strict_export_ready: false,
+        }), null, 2)}\n`,
+        stderr: '',
+        status: 0,
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('spawnSync node ETIMEDOUT');
+      });
+
+    const status = runRalphLoop({
+      repoRoot,
+      targetWorkspace: workspace,
+      prdPath: path.join(workspace, 'interviewops.xhs.json'),
+      iterations: 1,
+      sleepSeconds: 1,
+      autoCommit: false,
+    });
+
+    const fallbackDir = fs.readdirSync(path.join(workspace, '.omx/logs')).find((entry) =>
+      entry.startsWith('bounded-cycle-node-fallback-'),
+    );
+    const summary = fs.readFileSync(path.join(workspace, '.omx/logs', String(fallbackDir), 'summary.txt'), 'utf8');
+    const tsv = fs.readFileSync(path.join(workspace, '.omx/logs', String(fallbackDir), 'summary.tsv'), 'utf8');
+
+    expect(status).toBe(1);
+    expect(summary).toContain('START 1/1 hydrate');
+    expect(summary).toContain('END hydrate exit=1');
+    expect(summary).toContain('DONE status=1 failures=hydrate');
+    expect(tsv).toContain('hydrate\t1\t');
+    expect(tsv).not.toContain('control-status\t1\t');
+  });
 });
