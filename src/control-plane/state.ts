@@ -41,7 +41,23 @@ export function buildBacklogSnapshot(
 }
 
 export function ensureControlPlaneState(state: XhsState): ControlPlaneState {
-  return state.control_plane || createEmptyControlPlaneState();
+  if (!state.control_plane) {
+    return createEmptyControlPlaneState();
+  }
+
+  const defaults = createEmptyControlPlaneState();
+  return {
+    ...defaults,
+    ...state.control_plane,
+    cooldowns: {
+      ...defaults.cooldowns,
+      ...(state.control_plane.cooldowns || {}),
+    },
+    circuits: {
+      ...defaults.circuits,
+      ...(state.control_plane.circuits || {}),
+    },
+  };
 }
 
 export function appendControlPlaneJournalEvent(

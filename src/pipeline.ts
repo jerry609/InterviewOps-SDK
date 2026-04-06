@@ -178,6 +178,9 @@ export class InterviewOpsPipeline {
     const state = this.readState();
     const controlPlane = ensureControlPlaneState(state);
     const backlog = buildBacklogSnapshot(notes, state, this.config, Date.now());
+    const recentOperations = Object.values(state.operations || {})
+      .filter((item): item is PipelineOperationRecord => Boolean(item))
+      .sort((a, b) => b.last_run_at.localeCompare(a.last_run_at));
 
     return {
       workspace: this.workspace,
@@ -187,7 +190,7 @@ export class InterviewOpsPipeline {
         ...controlPlane,
         backlog_snapshot: backlog,
       },
-      recent_operations: Object.values(state.operations || {}).filter(Boolean),
+      recent_operations: recentOperations,
     };
   }
 

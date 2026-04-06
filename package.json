@@ -29,7 +29,7 @@
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src/heuristics.test.ts src/process.test.ts src/cli.test.ts src/pipeline.test.ts src/orchestration/omx.test.ts src/orchestration/ralph-loop.test.ts src/control-plane/contracts.test.ts src/adapters/opencli.test.ts src/adapters/xiaohongshu.test.ts"
+    "test": "vitest run src/heuristics.test.ts src/process.test.ts src/cli.test.ts src/pipeline.test.ts src/orchestration/omx.test.ts src/orchestration/ralph-loop.test.ts src/control-plane/contracts.test.ts src/control-plane/state.test.ts src/adapters/opencli.test.ts src/adapters/xiaohongshu.test.ts"
   },
   "keywords": [
     "sdk",
